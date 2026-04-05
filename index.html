@@ -301,7 +301,10 @@
     <div class="notify-wrap">
       <span class="notify-label">Be the first to know</span>
       <form class="notify-form" id="notifyForm" onsubmit="handleSubmit(event)">
-        <input type="email" placeholder="your@email.com" required />
+        <input type="hidden" name="access_key" value="a76a6f0d-df71-4371-bf26-71cfedc721c7"/>
+        <input type="hidden" name="subject" value="🔥 New KORA Subscriber"/>
+        <input type="hidden" name="from_name" value="KORA Website"/>
+        <input type="email" name="email" placeholder="your@email.com" required />
         <button type="submit">Notify me</button>
       </form>
       <p class="notify-thanks" id="thanks">
@@ -336,10 +339,26 @@
     }
 
     // Form
-    function handleSubmit(e) {
+    async function handleSubmit(e) {
       e.preventDefault();
-      document.getElementById('notifyForm').style.display = 'none';
-      document.getElementById('thanks').style.display = 'block';
+      const form = document.getElementById('notifyForm');
+      const data = new FormData(form);
+      const json = Object.fromEntries(data.entries());
+      try {
+        const res = await fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(json)
+        });
+        const result = await res.json();
+        if (result.success) {
+          form.style.display = 'none';
+          document.getElementById('thanks').style.display = 'block';
+        }
+      } catch(err) {
+        form.style.display = 'none';
+        document.getElementById('thanks').style.display = 'block';
+      }
     }
   </script>
 
