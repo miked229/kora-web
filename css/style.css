@@ -635,41 +635,34 @@ textarea { resize: vertical; }
 .manifesto-item:hover span { opacity: 1; color: var(--gold); }
 
 /* ===========================
-   NAV LOGO ARC
+   NAV LOGO
    =========================== */
 .nav-logo {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1;
   margin-right: auto;
 }
-.nav-arc {
-  width: 60px;
-  margin-bottom: 2px;
+.nav-logo-img {
+  height: 40px;
+  width: auto;
+  display: block;
 }
-.nav-logo span {
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  color: var(--cream);
+
+/* Hero logo */
+.hero-logo-wrap {
+  margin: 0 auto 40px;
+  max-width: 420px;
+}
+.hero-logo-img {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 /* Footer logo */
-.footer-logo {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  margin-bottom: 8px;
-}
-.footer-arc { width: 50px; margin-bottom: 2px; }
-.footer-logo span {
-  font-family: var(--font-serif);
-  font-size: 28px;
-  font-weight: 400;
-  letter-spacing: 0.15em;
-  color: var(--cream);
+.footer-logo { margin-bottom: 8px; }
+.footer-logo-img {
+  height: 50px;
+  width: auto;
+  display: block;
 }
 
 /* About quote */
