@@ -606,6 +606,91 @@ select option { background: var(--black-card); }
 textarea { resize: vertical; }
 
 /* ===========================
+   MANIFESTO
+   =========================== */
+.manifesto {
+  padding: 80px 0;
+  background: var(--black);
+  border-top: 1px solid rgba(201,168,76,0.1);
+  border-bottom: 1px solid rgba(201,168,76,0.1);
+}
+
+.manifesto-grid {
+  display: flex;
+  justify-content: center;
+  gap: 80px;
+  flex-wrap: wrap;
+}
+
+.manifesto-item span {
+  font-family: var(--font-serif);
+  font-size: clamp(28px, 5vw, 52px);
+  font-weight: 300;
+  font-style: italic;
+  color: var(--cream);
+  opacity: 0.6;
+  letter-spacing: 0.05em;
+  transition: opacity 0.3s ease;
+}
+.manifesto-item:hover span { opacity: 1; color: var(--gold); }
+
+/* ===========================
+   NAV LOGO ARC
+   =========================== */
+.nav-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  margin-right: auto;
+}
+.nav-arc {
+  width: 60px;
+  margin-bottom: 2px;
+}
+.nav-logo span {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--cream);
+}
+
+/* Footer logo */
+.footer-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.footer-arc { width: 50px; margin-bottom: 2px; }
+.footer-logo span {
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: 0.15em;
+  color: var(--cream);
+}
+
+/* About quote */
+.about-quote {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--gold);
+  margin-top: 24px !important;
+}
+
+/* Vibe phrases */
+.vibe-phrases {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--cream-dim);
+  line-height: 2;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+/* ===========================
    VIBE
    =========================== */
 .vibe {

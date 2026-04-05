@@ -6,21 +6,26 @@
   <title>KORA — koramx.com</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
   <!-- NAV -->
   <nav class="nav">
-    <div class="nav-logo">KORA</div>
+    <div class="nav-logo">
+      <svg class="nav-arc" viewBox="0 0 120 20" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 14 Q30 2 60 10 Q90 18 115 6" stroke="#C9A84C" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+      </svg>
+      <span>KORA</span>
+    </div>
     <ul class="nav-links">
-      <li><a href="#about">Nosotros</a></li>
-      <li><a href="#artists">Artistas</a></li>
-      <li><a href="#events">Eventos</a></li>
-      <li><a href="#contact">Contacto</a></li>
+      <li><a href="#about">Story</a></li>
+      <li><a href="#artists">Artists</a></li>
+      <li><a href="#events">Events</a></li>
+      <li><a href="#contact">Contact</a></li>
     </ul>
-    <button class="nav-cta">Comprar Tickets</button>
+    <button class="nav-cta">Get Tickets</button>
     <button class="nav-burger" aria-label="menu">&#9776;</button>
   </nav>
 
@@ -29,16 +34,16 @@
     <div class="hero-bg"></div>
     <div class="hero-content">
       <div class="hero-arc">
-        <svg viewBox="0 0 300 60" xmlns="http://www.w3.org/2000/svg">
-          <path d="M 20 50 Q 150 0 280 50" stroke="#F5F0E8" stroke-width="1.5" fill="none"/>
+        <svg viewBox="0 0 300 50" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 15 38 Q 80 5 150 22 Q 220 38 285 12" stroke="#C9A84C" stroke-width="1.5" fill="none" stroke-linecap="round"/>
         </svg>
       </div>
       <h1 class="hero-title">KORA</h1>
-      <p class="hero-sub">Sunset to Late · Cozumel</p>
-      <p class="hero-desc">La plataforma del sonido afro del Caribe mexicano.<br/>Talento local. Experiencias únicas. Música sin límites.</p>
+      <p class="hero-sub">Cozumel · From sunset to the unknown</p>
+      <p class="hero-desc">Not a party. A feeling.<br/>Where the beat meets the sea.</p>
       <div class="hero-btns">
-        <a href="#events" class="btn btn-primary">Ver Eventos</a>
-        <a href="#artists" class="btn btn-outline">Conoce los DJs</a>
+        <a href="#events" class="btn btn-primary">Upcoming Events</a>
+        <a href="#about" class="btn btn-outline">Our Story</a>
       </div>
     </div>
     <div class="hero-scroll">
@@ -52,33 +57,51 @@
     <div class="container">
       <div class="about-grid">
         <div class="about-text">
-          <span class="label">Quiénes somos</span>
-          <h2>Donde el África<br/>se encuentra<br/>con el Caribe</h2>
-          <p>KORA nació en Cozumel con una misión: llevar el sonido afro — Afro House, Afro Tech, Organic House — a las playas, beach clubs y espacios únicos de la isla y la región.</p>
-          <p>Somos el sello que descubre, presenta y proyecta a los mejores DJs del sureste mexicano. Cada evento es una experiencia curada, cada set una historia.</p>
+          <span class="label">Born by the ocean</span>
+          <h2>Where rhythm<br/>meets the<br/>ocean.</h2>
+          <p>KORA was born in Cozumel — an island where the Caribbean sea never stops moving. A place where the light changes everything at dusk, and the music finds you before you find it.</p>
+          <p>We don't organize parties. We create rituals. Sunset ceremonies where sound, energy, and the ocean become one thing.</p>
+          <p class="about-quote"><em>"For those who know."</em></p>
         </div>
         <div class="about-visual">
           <div class="about-card">
             <div class="about-card-num">01</div>
             <div class="about-card-text">
-              <h4>Talento Local</h4>
-              <p>DJs de Cozumel, Playa del Carmen, Cancún y toda la Riviera Maya.</p>
+              <h4>A Sunset Ritual</h4>
+              <p>Every KORA event begins when the sun touches the horizon. The island, the sea, the sound — everything aligns.</p>
             </div>
           </div>
           <div class="about-card">
             <div class="about-card-num">02</div>
             <div class="about-card-text">
-              <h4>Experiencias Únicas</h4>
-              <p>Beach clubs, yates, cenotes, playas privadas. Locaciones que no encuentras en ningún otro lugar.</p>
+              <h4>Ocean Sounds</h4>
+              <p>Deep, organic, hypnotic. Music that moves like the Caribbean — free, warm, and alive.</p>
             </div>
           </div>
           <div class="about-card">
             <div class="about-card-num">03</div>
             <div class="about-card-text">
-              <h4>El Sonido</h4>
-              <p>Afro House · Afro Tech · Organic · Melodic. La vibra del continente africano, puesta al sol del Caribe.</p>
+              <h4>Tribal Souls</h4>
+              <p>Beach clubs, private shores, yachts. Cozumel locations that exist nowhere else on earth.</p>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MANIFESTO -->
+  <section class="manifesto">
+    <div class="container">
+      <div class="manifesto-grid">
+        <div class="manifesto-item">
+          <span>Sound.</span>
+        </div>
+        <div class="manifesto-item">
+          <span>Energy.</span>
+        </div>
+        <div class="manifesto-item">
+          <span>Connection.</span>
         </div>
       </div>
     </div>
@@ -88,44 +111,44 @@
   <section class="artists" id="artists">
     <div class="container">
       <div class="section-header">
-        <span class="label">El Talento</span>
-        <h2>Artistas KORA</h2>
-        <p>Los DJs que dan vida al sonido de la isla.</p>
+        <span class="label">The Artists</span>
+        <h2>KORA Selectors</h2>
+        <p>The DJs who carry the sound of the island.</p>
       </div>
       <div class="artists-grid">
         <div class="artist-card">
           <div class="artist-img placeholder">
-            <span>DJ</span>
+            <span>☽</span>
           </div>
           <div class="artist-info">
-            <h3>Próximamente</h3>
-            <span class="artist-genre">Afro House</span>
-            <p>El lineup está siendo curado. Sé el primero en saberlo.</p>
-          </div>
-        </div>
-        <div class="artist-card">
-          <div class="artist-img placeholder">
-            <span>DJ</span>
-          </div>
-          <div class="artist-info">
-            <h3>Próximamente</h3>
+            <h3>Coming Soon</h3>
             <span class="artist-genre">Organic House</span>
-            <p>Talento de la región presentado bajo el sello KORA.</p>
+            <p>The lineup is being curated. Be the first to know.</p>
           </div>
         </div>
         <div class="artist-card">
           <div class="artist-img placeholder">
-            <span>DJ</span>
+            <span>◉</span>
           </div>
           <div class="artist-info">
-            <h3>Próximamente</h3>
-            <span class="artist-genre">Afro Tech</span>
-            <p>Sonidos que cruzan fronteras, raíces que no se olvidan.</p>
+            <h3>Coming Soon</h3>
+            <span class="artist-genre">Deep House</span>
+            <p>Talent from across the Riviera Maya, presented under the KORA seal.</p>
+          </div>
+        </div>
+        <div class="artist-card">
+          <div class="artist-img placeholder">
+            <span>∿</span>
+          </div>
+          <div class="artist-info">
+            <h3>Coming Soon</h3>
+            <span class="artist-genre">Melodic Techno</span>
+            <p>Sounds that cross borders. Roots that don't forget the sea.</p>
           </div>
         </div>
       </div>
       <div class="artists-cta">
-        <p>¿Eres DJ? <a href="#contact">Únete a KORA →</a></p>
+        <p>Are you a DJ? <a href="#contact">Join KORA →</a></p>
       </div>
     </div>
   </section>
@@ -134,28 +157,28 @@
   <section class="events" id="events">
     <div class="container">
       <div class="section-header">
-        <span class="label">Próximos Eventos</span>
-        <h2>La Agenda KORA</h2>
+        <span class="label">The Experience</span>
+        <h2>Upcoming Events</h2>
       </div>
       <div class="events-list">
-        <div class="event-item event-upcoming">
+        <div class="event-item">
           <div class="event-date">
-            <span class="event-day">TBD</span>
+            <span class="event-day">∞</span>
             <span class="event-month">2026</span>
           </div>
           <div class="event-info">
-            <h3>KORA · Primer Evento</h3>
+            <h3>KORA — First Edition</h3>
             <p class="event-venue">📍 Cozumel, Quintana Roo</p>
-            <p class="event-desc">El debut. La presentación oficial de KORA al mundo. Lineup de DJs seleccionados, locación exclusiva, sunset to late.</p>
+            <p class="event-desc">The debut. An evening the island will remember. Curated DJ lineup, exclusive location, from sunset to the unknown.</p>
             <div class="event-tags">
-              <span>Afro House</span>
+              <span>Organic House</span>
               <span>Sunset</span>
               <span>Cozumel</span>
             </div>
           </div>
           <div class="event-action">
-            <span class="event-badge">Próximamente</span>
-            <button class="btn btn-outline btn-sm" onclick="openNotifyModal()">Notifícame</button>
+            <span class="event-badge">Coming Soon</span>
+            <button class="btn btn-outline btn-sm" onclick="openNotifyModal()">Notify Me</button>
           </div>
         </div>
       </div>
@@ -167,23 +190,23 @@
     <div class="container">
       <div class="tickets-grid">
         <div class="tickets-text">
-          <span class="label">Tickets</span>
-          <h2>Asegura tu lugar</h2>
-          <p>Compra tus tickets directo aquí, sin intermediarios. Acceso anticipado, preventa exclusiva y beneficios para los más tempranos.</p>
+          <span class="label">Access</span>
+          <h2>Secure your place</h2>
+          <p>Direct tickets, no middlemen. Early access for those who move first.</p>
           <ul class="tickets-perks">
-            <li>✦ Preventa exclusiva para suscriptores</li>
-            <li>✦ Acceso prioritario en puerta</li>
-            <li>✦ Actualizaciones directas del lineup</li>
+            <li>✦ Exclusive presale for subscribers</li>
+            <li>✦ Priority entry at the door</li>
+            <li>✦ Direct lineup updates</li>
           </ul>
         </div>
         <div class="tickets-form-wrap">
           <div class="notify-card">
-            <h4>Sé el primero en saber</h4>
-            <p>Regístrate y te avisamos cuando abra la venta de tickets.</p>
+            <h4>Be the first to know</h4>
+            <p>Register and we'll reach you when tickets drop.</p>
             <form class="notify-form" onsubmit="handleNotify(event)">
-              <input type="text" placeholder="Tu nombre" required />
-              <input type="email" placeholder="Tu email" required />
-              <button type="submit" class="btn btn-primary">Quiero mi ticket →</button>
+              <input type="text" placeholder="Your name" required />
+              <input type="email" placeholder="Your email" required />
+              <button type="submit" class="btn btn-primary">I want in →</button>
             </form>
           </div>
         </div>
@@ -191,15 +214,17 @@
     </div>
   </section>
 
-  <!-- SOUND / VIBE SECTION -->
+  <!-- VIBE -->
   <section class="vibe">
     <div class="vibe-bg"></div>
     <div class="container">
       <div class="vibe-content">
-        <h2>"El sonido que<br/>mueve el alma."</h2>
-        <p>Afro House · Afro Tech · Organic House · Melodic</p>
+        <h2>"Not a party.<br/>A feeling."</h2>
         <div class="vibe-line"></div>
-        <p class="vibe-sub">Cozumel tiene el mar. KORA tiene el soundtrack.</p>
+        <p class="vibe-phrases">
+          Where rhythm meets the ocean<br/>
+          <em>Ocean sounds. Tribal souls.</em>
+        </p>
       </div>
     </div>
   </section>
@@ -209,35 +234,36 @@
     <div class="container">
       <div class="contact-grid">
         <div class="contact-text">
-          <span class="label">Contacto</span>
-          <h2>Hablemos</h2>
-          <p>¿Eres DJ y quieres ser parte de KORA? ¿Tienes una locación o beach club en Cozumel? ¿Quieres colaborar?</p>
+          <span class="label">Contact</span>
+          <h2>Let's talk</h2>
+          <p>Are you a DJ and want to be part of KORA? Do you have a venue or beach club in Cozumel? Want to collaborate?</p>
           <div class="contact-links">
-            <a href="mailto:hola@koramx.com" class="contact-link">✉ hola@koramx.com</a>
-            <a href="https://instagram.com/koracozumel" class="contact-link" target="_blank">◈ @koracozumel</a>
+            <a href="mailto:kora@koramx.com" class="contact-link">✉ kora@koramx.com</a>
+            <a href="https://instagram.com/koramx" class="contact-link" target="_blank">◈ @koramx</a>
+            <a href="https://koramx.com" class="contact-link" target="_blank">⊕ koramx.com</a>
           </div>
         </div>
         <form class="contact-form" onsubmit="handleContact(event)">
           <div class="form-group">
-            <input type="text" placeholder="Nombre" required />
+            <input type="text" placeholder="Name" required />
           </div>
           <div class="form-group">
             <input type="email" placeholder="Email" required />
           </div>
           <div class="form-group">
             <select>
-              <option value="" disabled selected>¿Cómo podemos ayudarte?</option>
-              <option>Soy DJ y quiero unirme</option>
-              <option>Tengo una locación / venue</option>
-              <option>Quiero organizar un evento</option>
-              <option>Prensa / colaboración</option>
-              <option>Otro</option>
+              <option value="" disabled selected>How can we help?</option>
+              <option>I'm a DJ and want to join</option>
+              <option>I have a venue / location</option>
+              <option>I want to organize an event</option>
+              <option>Press / collaboration</option>
+              <option>Other</option>
             </select>
           </div>
           <div class="form-group">
-            <textarea placeholder="Cuéntanos más..." rows="4"></textarea>
+            <textarea placeholder="Tell us more..." rows="4"></textarea>
           </div>
-          <button type="submit" class="btn btn-primary">Enviar mensaje →</button>
+          <button type="submit" class="btn btn-primary">Send message →</button>
         </form>
       </div>
     </div>
@@ -248,17 +274,22 @@
     <div class="container">
       <div class="footer-top">
         <div class="footer-brand">
-          <div class="footer-logo">KORA</div>
-          <p>Sunset to Late · Cozumel</p>
+          <div class="footer-logo">
+            <svg class="footer-arc" viewBox="0 0 100 18" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 13 Q25 2 50 9 Q75 16 95 5" stroke="#C9A84C" stroke-width="1" fill="none" stroke-linecap="round"/>
+            </svg>
+            <span>KORA</span>
+          </div>
+          <p>From sunset to the unknown · Cozumel</p>
         </div>
         <div class="footer-links">
-          <a href="#about">Nosotros</a>
-          <a href="#artists">Artistas</a>
-          <a href="#events">Eventos</a>
-          <a href="#contact">Contacto</a>
+          <a href="#about">Story</a>
+          <a href="#artists">Artists</a>
+          <a href="#events">Events</a>
+          <a href="#contact">Contact</a>
         </div>
         <div class="footer-social">
-          <a href="https://instagram.com/koracozumel" target="_blank">Instagram</a>
+          <a href="https://instagram.com/koramx" target="_blank">Instagram</a>
           <a href="#">TikTok</a>
           <a href="#">Spotify</a>
         </div>
@@ -273,12 +304,12 @@
   <div class="modal" id="notifyModal">
     <div class="modal-box">
       <button class="modal-close" onclick="closeNotifyModal()">✕</button>
-      <h3>Notifícame</h3>
-      <p>Te avisamos cuando salgan los tickets.</p>
+      <h3>Notify Me</h3>
+      <p>We'll reach you when tickets drop.</p>
       <form onsubmit="handleNotify(event)">
-        <input type="text" placeholder="Tu nombre" required />
-        <input type="email" placeholder="Tu email" required />
-        <button type="submit" class="btn btn-primary">Listo →</button>
+        <input type="text" placeholder="Your name" required />
+        <input type="email" placeholder="Your email" required />
+        <button type="submit" class="btn btn-primary">I'm in →</button>
       </form>
     </div>
   </div>
