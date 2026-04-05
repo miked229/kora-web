@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KORA Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --black: #000;
+      --black-soft: #0a0a0a;
+      --black-card: #111;
+      --black-border: #1e1e1e;
+      --gold: #C9960C;
+      --gold-light: #E8C96A;
+      --gold-dim: rgba(201,150,12,0.15);
+      --cream: #F0E6C8;
+      --cream-dim: #6a6050;
+      --green: #2a7a4a;
+      --red: #7a2a2a;
+      --serif: 'Cormorant Garamond', serif;
+      --sans: 'Inter', system-ui, sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body { background: var(--black); color: var(--cream); font-family: var(--sans); min-height: 100vh; }
+
+    /* ---- LOGIN ---- */
+    #loginScreen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse 60% 50% at 50% 55%, rgba(201,150,12,0.04) 0%, transparent 70%), #000;
+    }
+    .login-box {
+      width: 100%;
+      max-width: 400px;
+      padding: 56px 48px;
+      border: 1px solid rgba(201,150,12,0.15);
+      background: var(--black-card);
+      text-align: center;
+    }
+    .login-logo { width: 200px; margin: 0 auto 32px; filter: drop-shadow(0 0 30px rgba(201,150,12,0.2)); }
+    .login-title { font-family: var(--serif); font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold); margin-bottom: 36px; }
+    .login-box input {
+      width: 100%; background: rgba(201,150,12,0.03); border: 1px solid rgba(201,150,12,0.15);
+      color: var(--cream); padding: 14px 18px; font-family: var(--sans); font-size: 14px;
+      outline: none; margin-bottom: 16px; letter-spacing: 0.1em;
+      transition: border-color 0.3s;
+    }
+    .login-box input:focus { border-color: rgba(201,150,12,0.5); }
+    .login-box input::placeholder { color: rgba(240,230,200,0.2); }
+    .login-btn {
+      width: 100%; background: var(--gold); color: #000; border: none;
+      padding: 14px; font-family: var(--sans); font-size: 11px; font-weight: 600;
+      letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer; transition: background 0.3s;
+    }
+    .login-btn:hover { background: var(--gold-light); }
+    .login-err { color: #c0392b; font-size: 12px; margin-top: 12px; display: none; }
+
+    /* ---- DASHBOARD ---- */
+    #dashboard { display: none; }
+
+    /* Sidebar */
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 240px;
+      background: var(--black-soft);
+      border-right: 1px solid var(--black-border);
+      display: flex; flex-direction: column;
+      z-index: 50;
+    }
+    .sidebar-logo {
+      padding: 28px 24px 24px;
+      border-bottom: 1px solid var(--black-border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .sidebar-logo img { width: 80px; filter: drop-shadow(0 0 10px rgba(201,150,12,0.2)); }
+    .sidebar-badge {
+      font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--gold); background: var(--gold-dim); padding: 3px 8px;
+    }
+
+    .nav-section { padding: 20px 0 8px; }
+    .nav-section-label {
+      font-size: 9px; letter-spacing: 0.25em; text-transform: uppercase;
+      color: var(--cream-dim); padding: 0 20px 8px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 11px 20px; cursor: pointer; transition: all 0.2s;
+      color: var(--cream-dim); font-size: 13px; font-weight: 400;
+      border-left: 2px solid transparent;
+    }
+    .nav-item:hover { color: var(--cream); background: rgba(201,150,12,0.04); }
+    .nav-item.active { color: var(--gold); border-left-color: var(--gold); background: rgba(201,150,12,0.06); }
+    .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 20px;
+      border-top: 1px solid var(--black-border);
+    }
+    .logout-btn {
+      width: 100%; background: transparent; border: 1px solid var(--black-border);
+      color: var(--cream-dim); padding: 10px; font-family: var(--sans); font-size: 11px;
+      letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s;
+    }
+    .logout-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    /* Main content */
+    .main { margin-left: 240px; min-height: 100vh; padding: 40px; }
+
+    /* Header */
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 40px; padding-bottom: 24px;
+      border-bottom: 1px solid var(--black-border);
+    }
+    .page-title { font-family: var(--serif); font-size: 32px; font-weight: 300; color: var(--cream); }
+    .page-subtitle { font-size: 12px; color: var(--cream-dim); margin-top: 4px; }
+    .status-dot { width: 8px; height: 8px; background: #2ecc71; border-radius: 50%; display: inline-block; margin-right: 8px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-label { font-size: 11px; color: var(--cream-dim); }
+
+    /* Panels */
+    .panel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card {
+      background: var(--black-card); border: 1px solid var(--black-border);
+      padding: 28px; transition: border-color 0.3s;
+    }
+    .stat-card:hover { border-color: rgba(201,150,12,0.2); }
+    .stat-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--cream-dim); margin-bottom: 12px; }
+    .stat-value { font-family: var(--serif); font-size: 42px; font-weight: 300; color: var(--gold-light); line-height: 1; }
+    .stat-sub { font-size: 11px; color: var(--cream-dim); margin-top: 8px; }
+
+    /* Sections */
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* Cards */
+    .card {
+      background: var(--black-card); border: 1px solid var(--black-border);
+      padding: 32px; margin-bottom: 20px;
+    }
+    .card-title {
+      font-family: var(--serif); font-size: 20px; font-weight: 400;
+      color: var(--cream); margin-bottom: 24px;
+      padding-bottom: 16px; border-bottom: 1px solid var(--black-border);
+    }
+
+    /* Form controls */
+    .field { margin-bottom: 20px; }
+    .field label { display: block; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--cream-dim); margin-bottom: 8px; }
+    .field input, .field textarea, .field select {
+      width: 100%; background: rgba(201,150,12,0.03); border: 1px solid rgba(201,150,12,0.1);
+      color: var(--cream); padding: 12px 16px; font-family: var(--sans); font-size: 14px;
+      outline: none; transition: border-color 0.3s; resize: vertical;
+    }
+    .field input:focus, .field textarea:focus { border-color: rgba(201,150,12,0.4); }
+    .field input::placeholder, .field textarea::placeholder { color: rgba(240,230,200,0.2); }
+
+    .btn-row { display: flex; gap: 12px; margin-top: 8px; }
+    .btn {
+      padding: 12px 28px; font-family: var(--sans); font-size: 11px;
+      font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase;
+      cursor: pointer; border: none; transition: all 0.2s;
+    }
+    .btn-gold { background: var(--gold); color: #000; }
+    .btn-gold:hover { background: var(--gold-light); }
+    .btn-outline { background: transparent; color: var(--cream-dim); border: 1px solid var(--black-border); }
+    .btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-danger { background: transparent; color: #c0392b; border: 1px solid rgba(192,57,43,0.3); }
+    .btn-danger:hover { background: rgba(192,57,43,0.1); }
+
+    /* Toggle */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--black-border); }
+    .toggle-info h4 { font-size: 14px; color: var(--cream); margin-bottom: 4px; }
+    .toggle-info p { font-size: 12px; color: var(--cream-dim); }
+    .toggle { position: relative; width: 44px; height: 24px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: var(--black-border);
+      cursor: pointer; border-radius: 24px; transition: 0.3s;
+    }
+    .toggle-slider::before {
+      content: ''; position: absolute; width: 18px; height: 18px;
+      left: 3px; top: 3px; background: var(--cream-dim);
+      border-radius: 50%; transition: 0.3s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--gold); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(20px); background: #000; }
+
+    /* Events list */
+    .event-row {
+      display: flex; align-items: center; gap: 16px;
+      padding: 20px 0; border-bottom: 1px solid var(--black-border);
+    }
+    .event-row:last-child { border-bottom: none; }
+    .event-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+    .event-info { flex: 1; }
+    .event-info h4 { font-size: 14px; color: var(--cream); margin-bottom: 4px; }
+    .event-info p { font-size: 12px; color: var(--cream-dim); }
+    .event-actions { display: flex; gap: 8px; }
+
+    /* Subscribers table */
+    .table { width: 100%; border-collapse: collapse; }
+    .table th {
+      text-align: left; font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--cream-dim);
+      padding: 0 16px 16px; border-bottom: 1px solid var(--black-border);
+    }
+    .table td { padding: 14px 16px; font-size: 13px; color: var(--cream-dim); border-bottom: 1px solid rgba(30,30,30,0.5); }
+    .table tr:hover td { color: var(--cream); background: rgba(201,150,12,0.02); }
+
+    /* Apollo chat */
+    .apollo-chat {
+      background: var(--black); border: 1px solid rgba(201,150,12,0.15);
+      border-radius: 2px; overflow: hidden;
+    }
+    .chat-header {
+      padding: 16px 20px; background: rgba(201,150,12,0.05);
+      border-bottom: 1px solid rgba(201,150,12,0.1);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .chat-avatar { width: 28px; height: 28px; background: var(--gold); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #000; font-weight: 600; }
+    .chat-name { font-size: 13px; color: var(--cream); font-weight: 500; }
+    .chat-status { font-size: 11px; color: var(--gold); }
+    .chat-messages { height: 320px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .msg { max-width: 80%; }
+    .msg-apollo { align-self: flex-start; }
+    .msg-user { align-self: flex-end; }
+    .msg-bubble {
+      padding: 12px 16px; font-size: 13px; line-height: 1.5;
+      border-radius: 2px;
+    }
+    .msg-apollo .msg-bubble { background: var(--black-card); border: 1px solid var(--black-border); color: var(--cream); }
+    .msg-user .msg-bubble { background: rgba(201,150,12,0.12); border: 1px solid rgba(201,150,12,0.2); color: var(--cream); }
+    .msg-time { font-size: 10px; color: var(--cream-dim); margin-top: 4px; opacity: 0.5; }
+    .msg-apollo .msg-time { text-align: left; }
+    .msg-user .msg-time { text-align: right; }
+    .chat-input-row {
+      display: flex; gap: 0; border-top: 1px solid var(--black-border);
+    }
+    .chat-input {
+      flex: 1; background: transparent; border: none; color: var(--cream);
+      padding: 14px 18px; font-family: var(--sans); font-size: 13px; outline: none;
+    }
+    .chat-input::placeholder { color: rgba(240,230,200,0.2); }
+    .chat-send {
+      background: var(--gold); color: #000; border: none;
+      padding: 14px 20px; cursor: pointer; font-size: 16px; transition: background 0.2s;
+    }
+    .chat-send:hover { background: var(--gold-light); }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 32px; right: 32px;
+      background: var(--gold); color: #000;
+      padding: 12px 24px; font-size: 12px; font-weight: 500;
+      letter-spacing: 0.05em; opacity: 0; transform: translateY(10px);
+      transition: all 0.3s; pointer-events: none; z-index: 999;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; padding: 24px 16px; }
+      .panel-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-box">
+    <img src="../images/kora-logo-official.webp" class="login-logo" alt="KORA"/>
+    <p class="login-title">Admin Portal</p>
+    <input type="password" id="passInput" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()"/>
+    <button class="login-btn" onclick="doLogin()">Access Dashboard</button>
+    <p class="login-err" id="loginErr">Incorrect password</p>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <img src="../images/kora-logo-official.webp" alt="KORA"/>
+      <span class="sidebar-badge">Admin</span>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Overview</div>
+      <div class="nav-item active" onclick="showSection('home')">
+        <span class="icon">◈</span> Dashboard
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Content</div>
+      <div class="nav-item" onclick="showSection('page')">
+        <span class="icon">✦</span> Edit Page
+      </div>
+      <div class="nav-item" onclick="showSection('events')">
+        <span class="icon">◯</span> Events
+      </div>
+      <div class="nav-item" onclick="showSection('artists')">
+        <span class="icon">♪</span> Artists
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Community</div>
+      <div class="nav-item" onclick="showSection('subscribers')">
+        <span class="icon">⊕</span> Subscribers
+      </div>
+      <div class="nav-item" onclick="showSection('tickets')">
+        <span class="icon">⬡</span> Tickets
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-label">Intelligence</div>
+      <div class="nav-item" onclick="showSection('apollo')">
+        <span class="icon">☀</span> Apollo AI
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title" id="pageTitle">Dashboard</div>
+        <div class="page-subtitle" id="pageSubtitle">KORA Admin — Welcome back, Myke</div>
+      </div>
+      <div>
+        <span class="status-dot"></span>
+        <span class="status-label">koramx.com · Live</span>
+      </div>
+    </div>
+
+    <!-- HOME -->
+    <div class="section active" id="sec-home">
+      <div class="panel-grid">
+        <div class="stat-card">
+          <div class="stat-label">Subscribers</div>
+          <div class="stat-value" id="statSubs">0</div>
+          <div class="stat-sub">Waiting for KORA</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Events</div>
+          <div class="stat-value" id="statEvents">1</div>
+          <div class="stat-sub">Coming Soon — First Edition</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Artists</div>
+          <div class="stat-value" id="statArtists">0</div>
+          <div class="stat-sub">Add your first DJ</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Page Status</div>
+          <div class="stat-value" style="font-size:28px;padding-top:8px;">✦</div>
+          <div class="stat-sub" style="color:var(--gold)">Coming Soon · Active</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Quick Actions</div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="showSection('page')">✦ Edit Page</button>
+          <button class="btn btn-outline" onclick="showSection('events')">Add Event</button>
+          <button class="btn btn-outline" onclick="showSection('apollo')">☀ Ask Apollo</button>
+          <button class="btn btn-outline" onclick="window.open('../','_blank')">↗ View Site</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EDIT PAGE -->
+    <div class="section" id="sec-page">
+      <div class="card">
+        <div class="card-title">Coming Soon Page</div>
+        <div class="field">
+          <label>Main Headline</label>
+          <input type="text" id="editHeadline" value="Where rhythm meets the ocean."/>
+        </div>
+        <div class="field">
+          <label>Tagline</label>
+          <input type="text" id="editTagline" value="Not a party. A feeling."/>
+        </div>
+        <div class="field">
+          <label>Notify Button Text</label>
+          <input type="text" id="editBtnText" value="Notify me"/>
+        </div>
+        <div class="field">
+          <label>Location Text</label>
+          <input type="text" id="editLocation" value="Cozumel · Quintana Roo · México"/>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="savePageContent()">Save & Publish</button>
+          <button class="btn btn-outline" onclick="window.open('../','_blank')">Preview</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Page Settings</div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h4>Coming Soon Mode</h4>
+            <p>Show coming soon page instead of full site</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked onchange="showToast('Setting saved')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h4>Email Notifications</h4>
+            <p>Get notified when someone subscribes</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" onchange="showToast('Setting saved')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <h4>Particle Animation</h4>
+            <p>Floating gold particles in background</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked onchange="showToast('Setting saved')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- EVENTS -->
+    <div class="section" id="sec-events">
+      <div class="card">
+        <div class="card-title">Add New Event</div>
+        <div class="field"><label>Event Name</label><input type="text" id="evtName" placeholder="KORA — First Edition"/></div>
+        <div class="field"><label>Date</label><input type="date" id="evtDate"/></div>
+        <div class="field"><label>Venue / Location</label><input type="text" id="evtVenue" placeholder="Beach Club, Cozumel"/></div>
+        <div class="field"><label>Description</label><textarea id="evtDesc" rows="3" placeholder="An evening the island will remember..."></textarea></div>
+        <div class="field"><label>Ticket Price (MXN)</label><input type="number" id="evtPrice" placeholder="0"/></div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="addEvent()">Add Event</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Current Events</div>
+        <div id="eventsList">
+          <div class="event-row">
+            <div class="event-dot"></div>
+            <div class="event-info">
+              <h4>KORA — First Edition</h4>
+              <p>📍 Cozumel, Quintana Roo · Date TBD · Coming Soon</p>
+            </div>
+            <div class="event-actions">
+              <button class="btn btn-outline" style="padding:8px 14px;font-size:10px;">Edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARTISTS -->
+    <div class="section" id="sec-artists">
+      <div class="card">
+        <div class="card-title">Add Artist / DJ</div>
+        <div class="field"><label>Name</label><input type="text" id="artName" placeholder="DJ Name"/></div>
+        <div class="field"><label>Genre</label><input type="text" id="artGenre" placeholder="Organic House · Deep House · Melodic"/></div>
+        <div class="field"><label>Bio</label><textarea id="artBio" rows="3" placeholder="Short bio..."></textarea></div>
+        <div class="field"><label>Instagram</label><input type="text" id="artIG" placeholder="@username"/></div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="addArtist()">Add Artist</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Roster</div>
+        <div id="artistsList" style="color:var(--cream-dim);font-size:13px;font-style:italic;padding:8px 0;">
+          No artists added yet. Add your first DJ above.
+        </div>
+      </div>
+    </div>
+
+    <!-- SUBSCRIBERS -->
+    <div class="section" id="sec-subscribers">
+      <div class="card">
+        <div class="card-title">Subscribers <span style="font-size:13px;color:var(--cream-dim);font-family:var(--sans);" id="subCount">(0)</span></div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Date</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="subsTable">
+            <tr><td colspan="4" style="text-align:center;color:var(--cream-dim);font-style:italic;padding:32px;">No subscribers yet. Share the link and they'll come.</td></tr>
+          </tbody>
+        </table>
+        <div class="btn-row" style="margin-top:20px;">
+          <button class="btn btn-outline" onclick="exportSubs()">Export CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TICKETS -->
+    <div class="section" id="sec-tickets">
+      <div class="card">
+        <div class="card-title">Ticket System</div>
+        <p style="color:var(--cream-dim);font-size:14px;line-height:1.8;margin-bottom:24px;">
+          Connect Stripe or MercadoPago to enable direct ticket sales on koramx.com.<br/>
+          Tickets go live when you publish an event with a price.
+        </p>
+        <div class="field"><label>Stripe Public Key</label><input type="text" placeholder="pk_live_..."/></div>
+        <div class="field"><label>MercadoPago Key</label><input type="text" placeholder="APP_USR-..."/></div>
+        <div class="btn-row">
+          <button class="btn btn-gold" onclick="showToast('Payment config saved')">Save Config</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- APOLLO -->
+    <div class="section" id="sec-apollo">
+      <div class="card">
+        <div class="card-title">☀ Apollo — KORA AI Agent</div>
+        <div class="apollo-chat">
+          <div class="chat-header">
+            <div class="chat-avatar">A</div>
+            <div>
+              <div class="chat-name">Apollo ☀️</div>
+              <div class="chat-status">● Online · KORA Agent</div>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="msg msg-apollo">
+              <div class="msg-bubble">
+                Bienvenido al Admin de KORA, Myke. ☀️<br/><br/>
+                Soy Apollo, tu agente de inteligencia para KORA. Puedo ayudarte con estrategia de marketing, copy para la página, ideas para eventos, lineups, y cualquier cosa que necesites para hacer crecer la marca.<br/><br/>
+                ¿En qué trabajamos hoy?
+              </div>
+              <div class="msg-time">Apollo · KORA AI</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <input class="chat-input" id="chatInput" placeholder="Ask Apollo anything about KORA..." onkeydown="if(event.key==='Enter')sendMsg()"/>
+            <button class="chat-send" onclick="sendMsg()">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /dashboard -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // Auth — simple local password
+  const PASS = 'KoraCzm2003!';
+  const STORAGE_KEY = 'kora_admin_auth';
+
+  function doLogin() {
+    const val = document.getElementById('passInput').value;
+    if (val === PASS) {
+      sessionStorage.setItem(STORAGE_KEY, '1');
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      loadData();
+    } else {
+      document.getElementById('loginErr').style.display = 'block';
+    }
+  }
+
+  function doLogout() {
+    sessionStorage.removeItem(STORAGE_KEY);
+    location.reload();
+  }
+
+  // Check auth on load
+  if (sessionStorage.getItem(STORAGE_KEY)) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+  }
+
+  // Navigation
+  const sections = ['home','page','events','artists','subscribers','tickets','apollo'];
+  const titles = {
+    home: ['Dashboard','KORA Admin — Welcome back, Myke'],
+    page: ['Edit Page','Customize your Coming Soon page'],
+    events: ['Events','Manage your events and lineup'],
+    artists: ['Artists','Your DJ roster'],
+    subscribers: ['Subscribers','People waiting for KORA'],
+    tickets: ['Tickets','Sell tickets directly on koramx.com'],
+    apollo: ['Apollo AI','Your KORA intelligence agent']
+  };
+
+  function showSection(id) {
+    sections.forEach(s => {
+      document.getElementById('sec-'+s).classList.toggle('active', s===id);
+    });
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.getAttribute('onclick') && el.getAttribute('onclick').includes("'"+id+"'"));
+    });
+    document.getElementById('pageTitle').textContent = titles[id][0];
+    document.getElementById('pageSubtitle').textContent = titles[id][1];
+  }
+
+  // Data
+  let data = { events: [], artists: [], subscribers: [] };
+
+  function loadData() {
+    const saved = localStorage.getItem('kora_data');
+    if (saved) data = JSON.parse(saved);
+    renderAll();
+  }
+
+  function saveData() { localStorage.setItem('kora_data', JSON.stringify(data)); }
+
+  function renderAll() {
+    document.getElementById('statSubs').textContent = data.subscribers.length;
+    document.getElementById('statArtists').textContent = data.artists.length;
+    document.getElementById('statEvents').textContent = 1 + data.events.length;
+    document.getElementById('subCount').textContent = '(' + data.subscribers.length + ')';
+    renderArtists();
+    renderSubs();
+  }
+
+  // Events
+  function addEvent() {
+    const name = document.getElementById('evtName').value;
+    const date = document.getElementById('evtDate').value;
+    const venue = document.getElementById('evtVenue').value;
+    if (!name) return showToast('Add an event name');
+    data.events.push({ name, date, venue, desc: document.getElementById('evtDesc').value, price: document.getElementById('evtPrice').value });
+    saveData(); renderAll();
+    showToast('Event added ✦');
+    document.getElementById('evtName').value = '';
+    document.getElementById('evtVenue').value = '';
+    document.getElementById('evtDesc').value = '';
+  }
+
+  // Artists
+  function addArtist() {
+    const name = document.getElementById('artName').value;
+    if (!name) return showToast('Add an artist name');
+    data.artists.push({ name, genre: document.getElementById('artGenre').value, bio: document.getElementById('artBio').value, ig: document.getElementById('artIG').value });
+    saveData(); renderAll();
+    showToast('Artist added ✦');
+    document.getElementById('artName').value = '';
+    document.getElementById('artGenre').value = '';
+    document.getElementById('artBio').value = '';
+    document.getElementById('artIG').value = '';
+  }
+
+  function renderArtists() {
+    const el = document.getElementById('artistsList');
+    if (!data.artists.length) { el.innerHTML = '<span style="color:var(--cream-dim);font-size:13px;font-style:italic;">No artists added yet.</span>'; return; }
+    el.innerHTML = data.artists.map((a,i) => `
+      <div class="event-row">
+        <div class="event-dot"></div>
+        <div class="event-info"><h4>${a.name}</h4><p>${a.genre} ${a.ig ? '· '+a.ig : ''}</p></div>
+        <div class="event-actions">
+          <button class="btn btn-danger" style="padding:8px 14px;font-size:10px;" onclick="removeArtist(${i})">Remove</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function removeArtist(i) { data.artists.splice(i,1); saveData(); renderAll(); showToast('Artist removed'); }
+
+  // Subscribers
+  function renderSubs() {
+    const el = document.getElementById('subsTable');
+    if (!data.subscribers.length) { el.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--cream-dim);font-style:italic;padding:32px;">No subscribers yet.</td></tr>'; return; }
+    el.innerHTML = data.subscribers.map(s => `<tr><td>${s.email}</td><td>${s.name||'—'}</td><td>${s.date}</td><td style="color:var(--gold)">Subscribed</td></tr>`).join('');
+  }
+
+  function exportSubs() {
+    if (!data.subscribers.length) return showToast('No subscribers to export');
+    const csv = 'Email,Name,Date\n' + data.subscribers.map(s => `${s.email},${s.name||''},${s.date}`).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = 'kora-subscribers.csv';
+    a.click();
+    showToast('CSV exported');
+  }
+
+  // Page editor
+  function savePageContent() { showToast('Changes saved · koramx.com updated'); }
+
+  // Toast
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // Apollo chat
+  const apolloReplies = [
+    "Para KORA en Cozumel, te recomiendo empezar con un evento íntimo de 80-100 personas en un beach club. Precio de entrada: $500-800 MXN. Esto construye reputación antes de escalar. ✦",
+    "El contenido que más convierte para eventos es: video corto (15s) de la locación al atardecer + el logo KORA. Nada de texto en el video. Solo la imagen y el sonido. Ponlo en TikTok e Instagram Reels.",
+    "Para el lineup, busca 2-3 DJs locales de Playa del Carmen o Cancún que ya tengan seguimiento. KORA les da el sello, ellos traen su audiencia. Todos ganan.",
+    "La estrategia de preventa: abre 20 tickets a precio anticipado antes de anunciar el lineup. La exclusividad vende más que los nombres.",
+    "Para koramx.com, cuando esté listo el sitio completo: agrega un mix de 30 minutos como preview del sonido KORA. La gente se suscribe más cuando puede escuchar.",
+    "Instagram @koramx es la prioridad número uno ahora mismo. Publica un post diario: imagen del mar en Cozumel, frase corta, logo KORA. Construye presencia antes del primer evento.",
+  ];
+  let replyIdx = 0;
+
+  function sendMsg() {
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+    const msgs = document.getElementById('chatMessages');
+    const now = new Date().toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit'});
+    msgs.innerHTML += `<div class="msg msg-user"><div class="msg-bubble">${msg}</div><div class="msg-time">Myke · ${now}</div></div>`;
+    msgs.scrollTop = msgs.scrollHeight;
+    setTimeout(() => {
+      const reply = apolloReplies[replyIdx % apolloReplies.length];
+      replyIdx++;
+      msgs.innerHTML += `<div class="msg msg-apollo"><div class="msg-bubble">${reply}</div><div class="msg-time">Apollo · ${now}</div></div>`;
+      msgs.scrollTop = msgs.scrollHeight;
+    }, 800);
+  }
+
+  // Load data on start
+  if (sessionStorage.getItem(STORAGE_KEY)) loadData();
+</script>
+</body>
+</html>
