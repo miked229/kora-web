@@ -247,6 +247,7 @@
       <div class="nav-item" onclick="go('events')"><span class="ico">◯</span> Events</div>
       <div class="nav-item" onclick="go('tickets')"><span class="ico">⬡</span> Tickets</div>
       <div class="nav-item" onclick="go('reservations')"><span class="ico">⊕</span> Reservations <span class="nav-badge" id="resBadge">0</span></div>
+      <div class="nav-item" onclick="go('live-bookings')"><span class="ico">⚡</span> Live Bookings <span class="nav-badge" id="liveBookingsBadge" style="background:rgba(76,175,80,.2);color:#7ed081;border:1px solid rgba(76,175,80,.4)">0</span></div>
       <div class="nav-item" onclick="go('artists')"><span class="ico">♪</span> Artists</div>
     </div>
     <div class="nav-group">
@@ -880,6 +881,315 @@ function download(filename, content) {
   a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(content);
   a.download = filename; a.click();
 }
+</script>
+
+<!-- ── Live Bookings Section (Supabase realtime) ─────────────── -->
+<div class="section" id="sec-live-bookings" style="display:none">
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+      <div class="card-title">⚡ Live Bookings</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span id="lb-connection" style="font-size:11px;letter-spacing:1px;color:#555">● Disconnected</span>
+        <span class="card-action" onclick="lbExportCsv()">Export CSV</span>
+        <span class="card-action" onclick="lbLoad()">↻ Refresh</span>
+      </div>
+    </div>
+    <!-- KPI row -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:20px 24px;border-bottom:1px solid var(--border)">
+      <div style="text-align:center">
+        <div style="font-size:28px;font-weight:600;color:var(--gold)" id="lb-kpi-total">—</div>
+        <div style="font-size:11px;letter-spacing:1px;color:var(--cream-dim);text-transform:uppercase;margin-top:4px">Total Reservas</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:28px;font-weight:600;color:#7ed081" id="lb-kpi-confirmed">—</div>
+        <div style="font-size:11px;letter-spacing:1px;color:var(--cream-dim);text-transform:uppercase;margin-top:4px">Confirmadas</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:28px;font-weight:600;color:#e8c96a" id="lb-kpi-pending">—</div>
+        <div style="font-size:11px;letter-spacing:1px;color:var(--cream-dim);text-transform:uppercase;margin-top:4px">Pendientes</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:28px;font-weight:600;color:var(--gold)" id="lb-kpi-revenue">—</div>
+        <div style="font-size:11px;letter-spacing:1px;color:var(--cream-dim);text-transform:uppercase;margin-top:4px">Ingresos MXN</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase config -->
+  <div class="card" id="lb-config-card" style="margin-bottom:20px">
+    <div class="card-header"><div class="card-title">Configuración Supabase</div></div>
+    <div style="padding:20px 24px">
+      <p style="font-size:13px;color:var(--cream-dim);margin-bottom:16px">
+        Ingresa tus credenciales de Supabase para ver las reservas en tiempo real.
+        Estas se guardan solo en esta sesión del navegador.
+      </p>
+      <div class="field"><label>Supabase URL</label>
+        <input type="text" id="lb-url" placeholder="https://xxxx.supabase.co" style="font-family:monospace;font-size:13px"/>
+      </div>
+      <div class="field"><label>Anon Key</label>
+        <input type="text" id="lb-key" placeholder="eyJhbGciOi..." style="font-family:monospace;font-size:13px"/>
+      </div>
+      <button class="btn btn-gold" onclick="lbConnect()">Conectar y cargar</button>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="padding:14px 20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <select id="lb-filter-status" onchange="lbApplyFilter()"
+              style="background:var(--surface);border:1px solid var(--border);color:var(--cream);padding:8px 12px;border-radius:4px;font-size:13px">
+        <option value="">Todos los estados</option>
+        <option value="confirmed">Confirmado</option>
+        <option value="pending">Pendiente</option>
+        <option value="failed">Fallido</option>
+      </select>
+      <select id="lb-filter-type" onchange="lbApplyFilter()"
+              style="background:var(--surface);border:1px solid var(--border);color:var(--cream);padding:8px 12px;border-radius:4px;font-size:13px">
+        <option value="">Todos los tipos</option>
+        <option value="general">General</option>
+        <option value="vip">VIP</option>
+      </select>
+      <input id="lb-search" type="search" placeholder="Buscar nombre o email..."
+             oninput="lbApplyFilter()"
+             style="background:var(--surface);border:1px solid var(--border);color:var(--cream);
+                    padding:8px 12px;border-radius:4px;font-size:13px;flex:1;min-width:180px"/>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Email</th>
+            <th>Tipo</th>
+            <th>Cant.</th>
+            <th>Total</th>
+            <th>Estado</th>
+            <th>Email</th>
+            <th>Fecha</th>
+          </tr>
+        </thead>
+        <tbody id="lb-tbody">
+          <tr><td colspan="9" style="text-align:center;color:var(--cream-dim);padding:40px;font-style:italic">
+            Conecta Supabase para ver las reservas.
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="lb-footer" style="padding:12px 20px;font-size:12px;color:var(--cream-dim);border-top:1px solid var(--border)"></div>
+  </div>
+</div>
+
+<script>
+// ── Live Bookings Admin Module ────────────────────────────────
+const LB = {
+  url:  sessionStorage.getItem('lb_url')  || '',
+  key:  sessionStorage.getItem('lb_key')  || '',
+  rows: [],
+  filtered: [],
+};
+
+// Restore saved credentials
+(function () {
+  if (LB.url) { const e = document.getElementById('lb-url'); if (e) e.value = LB.url; }
+  if (LB.key) { const e = document.getElementById('lb-key'); if (e) e.value = LB.key; }
+})();
+
+function lbConnect() {
+  const url = (document.getElementById('lb-url')?.value || '').trim();
+  const key = (document.getElementById('lb-key')?.value || '').trim();
+  if (!url || !key) { showToast('Ingresa la URL y la Anon Key de Supabase'); return; }
+  LB.url = url;
+  LB.key = key;
+  sessionStorage.setItem('lb_url', url);
+  sessionStorage.setItem('lb_key', key);
+  // Hide config card
+  const cfg = document.getElementById('lb-config-card');
+  if (cfg) cfg.style.display = 'none';
+  lbLoad();
+  lbSubscribeRealtime();
+}
+
+async function lbLoad() {
+  const conn = document.getElementById('lb-connection');
+  if (conn) { conn.textContent = '⟳ Cargando...'; conn.style.color = '#E8C96A'; }
+
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 15000);
+
+    const r = await fetch(
+      `${LB.url}/rest/v1/bookings?select=*,events(name,date)&order=created_at.desc`,
+      {
+        headers: { apikey: LB.key, Authorization: `Bearer ${LB.key}` },
+        signal: ctrl.signal,
+      }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    LB.rows = await r.json();
+
+    // Also fetch email logs for status column
+    const er = await fetch(
+      `${LB.url}/rest/v1/email_logs?select=booking_id,status,email_type&email_type=eq.confirmation`,
+      { headers: { apikey: LB.key, Authorization: `Bearer ${LB.key}` } }
+    );
+    const emailLogs = er.ok ? await er.json() : [];
+    const emailMap  = {};
+    emailLogs.forEach(l => { emailMap[l.booking_id] = l.status; });
+    LB.rows.forEach(r => { r._emailStatus = emailMap[r.id] || '—'; });
+
+    lbApplyFilter();
+    lbUpdateKpis();
+    if (conn) { conn.textContent = '● En vivo'; conn.style.color = '#7ed081'; }
+
+    // Update sidebar badge
+    const confirmed = LB.rows.filter(r => r.status === 'confirmed').length;
+    const badge = document.getElementById('liveBookingsBadge');
+    if (badge) badge.textContent = confirmed;
+  } catch (err) {
+    if (conn) { conn.textContent = '● Error'; conn.style.color = '#e05252'; }
+    showToast('Error al cargar: ' + err.message);
+  }
+}
+
+function lbApplyFilter() {
+  const status = document.getElementById('lb-filter-status')?.value || '';
+  const type   = document.getElementById('lb-filter-type')?.value   || '';
+  const search = (document.getElementById('lb-search')?.value || '').toLowerCase().trim();
+
+  LB.filtered = LB.rows.filter(r => {
+    if (status && r.status !== status) return false;
+    if (type   && r.ticket_type !== type) return false;
+    if (search) {
+      const haystack = `${r.customer_name} ${r.customer_email} ${r.confirmation_code || ''}`.toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  lbRenderTable();
+}
+
+function lbRenderTable() {
+  const tbody = document.getElementById('lb-tbody');
+  const footer = document.getElementById('lb-footer');
+  if (!tbody) return;
+
+  if (!LB.filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--cream-dim);padding:40px;font-style:italic">Sin resultados.</td></tr>`;
+    if (footer) footer.textContent = '';
+    return;
+  }
+
+  const statusBadge = (s) => {
+    const map = {
+      confirmed: 'background:rgba(76,175,80,.15);color:#7ed081;border:1px solid rgba(76,175,80,.3)',
+      pending:   'background:rgba(232,201,106,.1);color:#E8C96A;border:1px solid rgba(232,201,106,.3)',
+      failed:    'background:rgba(224,82,82,.1);color:#e05252;border:1px solid rgba(224,82,82,.3)',
+      expired:   'background:rgba(85,85,85,.2);color:#888;border:1px solid #333',
+    };
+    const style = map[s] || 'color:#888';
+    return `<span style="font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:20px;text-transform:uppercase;${style}">${s}</span>`;
+  };
+
+  const emailBadge = (s) => {
+    const map = {
+      sent:     'color:#7ed081',
+      failed:   'color:#e05252',
+      retrying: 'color:#E8C96A',
+      pending:  'color:#888',
+      '—':      'color:#555',
+    };
+    const icons = { sent:'✓ enviado', failed:'✕ error', retrying:'↻ reintentando', pending:'⏳ pendiente', '—':'—' };
+    return `<span style="font-size:11px;${map[s]||''}">${icons[s]||s}</span>`;
+  };
+
+  const rows = LB.filtered.map(r => {
+    const date = r.created_at
+      ? new Date(r.created_at).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+      : '—';
+    const total = r.total_amount != null
+      ? '$' + Number(r.total_amount).toLocaleString('es-MX') + ' MXN'
+      : '—';
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px;color:var(--gold)">${r.confirmation_code || '—'}</td>
+      <td>${escHtml(r.customer_name || '—')}</td>
+      <td style="font-size:12px;color:var(--cream-dim)">${escHtml(r.customer_email || '—')}</td>
+      <td><span style="text-transform:uppercase;font-size:11px;letter-spacing:1px">${r.ticket_type || '—'}</span></td>
+      <td style="text-align:center">${r.quantity || '—'}</td>
+      <td style="color:var(--gold)">${total}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td>${emailBadge(r._emailStatus)}</td>
+      <td style="font-size:11px;color:var(--cream-dim)">${date}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = rows;
+  if (footer) footer.textContent = `${LB.filtered.length} de ${LB.rows.length} reservas`;
+}
+
+function lbUpdateKpis() {
+  const confirmed = LB.rows.filter(r => r.status === 'confirmed');
+  const pending   = LB.rows.filter(r => r.status === 'pending');
+  const revenue   = confirmed.reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
+
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('lb-kpi-total',     LB.rows.length);
+  set('lb-kpi-confirmed', confirmed.length);
+  set('lb-kpi-pending',   pending.length);
+  set('lb-kpi-revenue',   '$' + revenue.toLocaleString('es-MX') + ' MXN');
+}
+
+function lbExportCsv() {
+  if (!LB.rows.length) { showToast('No hay datos para exportar'); return; }
+  const header = 'Código,Nombre,Email,Tipo,Cantidad,Total,Estado,Email Enviado,Fecha\n';
+  const rows = LB.rows.map(r => [
+    r.confirmation_code || '',
+    `"${(r.customer_name||'').replace(/"/g,'""')}"`,
+    r.customer_email || '',
+    r.ticket_type || '',
+    r.quantity || '',
+    r.total_amount || '',
+    r.status || '',
+    r._emailStatus || '',
+    r.created_at ? new Date(r.created_at).toISOString() : '',
+  ].join(',')).join('\n');
+  download('kora-bookings-' + new Date().toISOString().slice(0,10) + '.csv', header + rows);
+}
+
+// Realtime subscription via Supabase REST long-poll (no WS library needed)
+let lbRealtimeInterval = null;
+function lbSubscribeRealtime() {
+  if (lbRealtimeInterval) clearInterval(lbRealtimeInterval);
+  // Poll every 15 seconds (lightweight alternative to WebSocket for admin panel)
+  lbRealtimeInterval = setInterval(lbLoad, 15000);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Hook into the existing go() navigation function to auto-load when section opens
+const _origGo = window.go;
+window.go = function(section) {
+  _origGo(section);
+  if (section === 'live-bookings') {
+    // Show section (go() hides all sections, re-show this one)
+    const sec = document.getElementById('sec-live-bookings');
+    if (sec) sec.style.display = 'block';
+    // Restore config card if not connected
+    if (!LB.key) {
+      const cfg = document.getElementById('lb-config-card');
+      if (cfg) cfg.style.display = 'block';
+    } else {
+      lbLoad();
+    }
+  }
+};
 </script>
 </body>
 </html>

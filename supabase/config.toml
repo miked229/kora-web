@@ -1,0 +1,45 @@
+# Supabase project configuration
+# Docs: https://supabase.com/docs/guides/local-development
+
+[project]
+id = "kora-web"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true      # Local email testing
+port = 54324
+
+[storage]
+enabled = false     # Not needed for this project
+
+[auth]
+enabled = false     # Public booking flow uses anon key; no user accounts needed
+
+[edge_runtime]
+enabled = true
+policy = "oneshot"
+
+# ── Scheduled functions (cron) ──────────────────────────────────
+# Retry failed emails every 5 minutes
+[[functions]]
+name = "retry-failed-emails"
+verify_jwt = false
+
+[functions.retry-failed-emails.cron]
+schedule = "*/5 * * * *"   # every 5 minutes

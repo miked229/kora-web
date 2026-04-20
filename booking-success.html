@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KORA — Reserva Confirmada</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black:      #000;
+      --gold:       #C9960C;
+      --gold-light: #E8C96A;
+      --gold-faint: rgba(201,150,12,.12);
+      --cream:      #F0E6C8;
+      --cream-muted:#9a8a6a;
+      --gray-900:   #0d0d0d;
+      --gray-800:   #141414;
+      --gray-700:   #1e1e1e;
+      --gray-600:   #2a2a2a;
+      --gray-400:   #555;
+      --danger:     #e05252;
+      --success:    #4caf50;
+      --serif:      'Cormorant Garamond', Georgia, serif;
+      --sans:       'Inter', system-ui, sans-serif;
+    }
+    body {
+      background: var(--black);
+      color: var(--cream);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .logo {
+      font-family: var(--serif);
+      font-size: 28px;
+      letter-spacing: 8px;
+      color: var(--gold);
+      margin-bottom: 40px;
+    }
+    .card {
+      background: var(--gray-900);
+      border: 1px solid var(--gray-700);
+      border-radius: 10px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+      padding: 48px 32px;
+    }
+    /* Success state */
+    .icon-wrap {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      margin: 0 auto 24px;
+      animation: pop .4s cubic-bezier(.175,.885,.32,1.275);
+    }
+    .icon-success { background: rgba(76,175,80,.1); border: 2px solid rgba(76,175,80,.5); }
+    .icon-error   { background: rgba(224,82,82,.1);  border: 2px solid rgba(224,82,82,.5);  }
+    .icon-loading { background: var(--gray-800); border: 2px solid var(--gray-600); }
+    @keyframes pop { from { transform:scale(0);opacity:0; } to { transform:scale(1);opacity:1; } }
+    h1 {
+      font-family: var(--serif);
+      font-size: 26px;
+      font-weight: 400;
+      color: var(--cream);
+      margin-bottom: 10px;
+    }
+    p { color: var(--cream-muted); font-size: 14px; line-height: 1.7; }
+    .code-box {
+      background: var(--gold-faint);
+      border: 1px solid rgba(201,150,12,.4);
+      border-radius: 6px;
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .code-box label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+    .code-box .code { font-size: 26px; letter-spacing: 5px; font-weight: 700; color: var(--gold-light); }
+    .details { text-align: left; margin: 20px 0; }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--gray-700);
+      color: var(--cream-muted);
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row span:last-child { color: var(--cream); font-weight: 500; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 20px;
+      padding: 13px 28px;
+      border-radius: 6px;
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: .2s;
+      width: 100%;
+    }
+    .btn-primary { background: var(--gold); color: var(--black); }
+    .btn-primary:hover { background: var(--gold-light); }
+    .btn-ghost { background: transparent; border: 1px solid var(--gray-600); color: var(--cream-muted); }
+    .btn-ghost:hover { border-color: var(--gray-400); color: var(--cream); }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--gray-600);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="logo">K O R A</div>
+
+<div class="card" id="card">
+  <!-- Loading state -->
+  <div id="state-loading">
+    <div class="spinner" style="margin-bottom:24px"></div>
+    <h1>Verificando pago...</h1>
+    <p>Por favor espera un momento.</p>
+  </div>
+
+  <!-- Success state (hidden by default) -->
+  <div id="state-success" style="display:none">
+    <div class="icon-wrap icon-success">✓</div>
+    <h1>¡Reserva confirmada!</h1>
+    <p>
+      Recibirás los detalles en <strong id="confirm-email">tu correo</strong>.
+      Presenta el código a continuación en la entrada.
+    </p>
+    <div class="code-box">
+      <label>Código de confirmación</label>
+      <div class="code" id="confirm-code">—</div>
+    </div>
+    <div class="details">
+      <div class="detail-row"><span>Evento</span><span id="d-event">—</span></div>
+      <div class="detail-row"><span>Fecha</span><span id="d-date">—</span></div>
+      <div class="detail-row"><span>Boletos</span><span id="d-tickets">—</span></div>
+      <div class="detail-row"><span>Total</span><span id="d-total">—</span></div>
+    </div>
+    <a href="/" class="btn btn-ghost">Volver al inicio</a>
+  </div>
+
+  <!-- Error state (hidden by default) -->
+  <div id="state-error" style="display:none">
+    <div class="icon-wrap icon-error">✕</div>
+    <h1>Pago no procesado</h1>
+    <p id="error-msg">Tu pago no pudo completarse. No se realizó ningún cargo.</p>
+    <a href="/booking.html" class="btn btn-primary" style="margin-top:24px">Intentar de nuevo</a>
+    <a href="/" class="btn btn-ghost" style="margin-top:10px">Volver al inicio</a>
+  </div>
+</div>
+
+<script>
+(async function () {
+  const CFG = {
+    SUPABASE_URL:  'https://YOUR_PROJECT_REF.supabase.co',
+    SUPABASE_ANON: 'YOUR_SUPABASE_ANON_KEY',
+    STRIPE_PK:     'pk_live_YOUR_STRIPE_PUBLIC_KEY',
+  };
+
+  function show(id) {
+    ['state-loading','state-success','state-error'].forEach(s => {
+      const el = document.getElementById(s);
+      if (el) el.style.display = (s === id ? 'block' : 'none');
+    });
+  }
+
+  function setSafe(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  function fmt(amount) {
+    return '$' + Number(amount).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' MXN';
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const piCS   = params.get('payment_intent_client_secret');
+  const piId   = params.get('payment_intent');
+  const status = params.get('redirect_status');
+  const bookId = params.get('booking_id');
+
+  // No Stripe params: redirect to booking page
+  if (!piCS && !piId && !status) {
+    window.location.replace('/booking.html');
+    return;
+  }
+
+  if (status === 'failed' || status === 'canceled') {
+    show('state-error');
+    setSafe('error-msg', 'Tu pago no se completó. No se realizó ningún cargo. Intenta de nuevo.');
+    return;
+  }
+
+  // Verify payment status with Stripe (client-side retrieval for UX; real source-of-truth is webhook)
+  try {
+    if (window.Stripe && piCS) {
+      const stripe = window.Stripe(CFG.STRIPE_PK);
+      const { paymentIntent } = await stripe.retrievePaymentIntent(piCS);
+
+      if (paymentIntent.status !== 'succeeded') {
+        show('state-error');
+        setSafe('error-msg', 'El pago no fue exitoso. No se realizó ningún cargo.');
+        return;
+      }
+    }
+  } catch (e) {
+    // If Stripe check fails, still try to show booking data
+    console.warn('Stripe retrieve failed:', e);
+  }
+
+  // Fetch booking details from Supabase
+  if (bookId) {
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 10000);
+
+      const r = await fetch(
+        `${CFG.SUPABASE_URL}/rest/v1/bookings` +
+          `?id=eq.${encodeURIComponent(bookId)}&select=*,events(name,date,venue)`,
+        {
+          headers: { apikey: CFG.SUPABASE_ANON, Authorization: `Bearer ${CFG.SUPABASE_ANON}` },
+          signal: ctrl.signal,
+        }
+      );
+      const rows = await r.json();
+      if (rows && rows[0]) {
+        const b = rows[0];
+        const evt = b.events || {};
+        setSafe('confirm-code', b.confirmation_code || 'Ver correo');
+        setSafe('confirm-email', b.customer_email);
+        setSafe('d-event', evt.name || '—');
+        if (evt.date) {
+          setSafe('d-date', new Date(evt.date).toLocaleDateString('es-MX', {
+            weekday:'long', day:'numeric', month:'long', year:'numeric',
+          }));
+        }
+        setSafe('d-tickets', `${b.quantity}× ${(b.ticket_type||'').toUpperCase()}`);
+        setSafe('d-total', fmt(b.total_amount));
+      }
+    } catch (e) {
+      console.warn('Could not fetch booking:', e);
+    }
+  }
+
+  show('state-success');
+})();
+</script>
+</body>
+</html>

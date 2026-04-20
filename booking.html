@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="KORA DJ Night — Reserva tus boletos para el 15 de mayo en Cozumel">
+  <meta name="robots" content="index, follow">
+  <title>KORA — Reserva tus Boletos</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Stripe.js — loaded early for PCI compliance -->
+  <script src="https://js.stripe.com/v3/" defer></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black:       #000000;
+      --gold:        #C9960C;
+      --gold-light:  #E8C96A;
+      --gold-faint:  rgba(201,150,12,.12);
+      --cream:       #F0E6C8;
+      --cream-muted: #9a8a6a;
+      --gray-900:    #0d0d0d;
+      --gray-800:    #141414;
+      --gray-700:    #1e1e1e;
+      --gray-600:    #2a2a2a;
+      --gray-400:    #555;
+      --danger:      #e05252;
+      --success:     #4caf50;
+      --serif:       'Cormorant Garamond', Georgia, serif;
+      --sans:        'Inter', system-ui, sans-serif;
+      --radius:      6px;
+      --transition:  .2s ease;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--black);
+      color: var(--cream);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .site-header {
+      text-align: center;
+      padding: 32px 24px 24px;
+      border-bottom: 1px solid var(--gray-700);
+    }
+    .site-header a { text-decoration: none; }
+    .logo {
+      font-family: var(--serif);
+      font-size: 32px;
+      font-weight: 300;
+      color: var(--gold);
+      letter-spacing: 10px;
+    }
+    .logo-sub {
+      font-size: 10px;
+      letter-spacing: 4px;
+      color: var(--cream-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+
+    /* ── Main container ──────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 24px 80px;
+    }
+
+    .booking-wrapper {
+      width: 100%;
+      max-width: 560px;
+    }
+
+    /* ── Progress bar ────────────────────────────────────────── */
+    .progress {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 40px;
+    }
+    .progress-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .progress-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--gray-600);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--gray-400);
+      transition: var(--transition);
+      position: relative;
+    }
+    .progress-dot.active  { border-color: var(--gold); color: var(--gold); }
+    .progress-dot.done    { border-color: var(--gold); background: var(--gold); color: var(--black); }
+    .progress-label {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--gray-400);
+      white-space: nowrap;
+    }
+    .progress-step.active .progress-label,
+    .progress-step.done .progress-label { color: var(--gold); }
+    .progress-line {
+      height: 1px;
+      width: 56px;
+      background: var(--gray-600);
+      margin-bottom: 22px;
+      transition: var(--transition);
+    }
+    .progress-line.done { background: var(--gold); }
+
+    /* ── Card ────────────────────────────────────────────────── */
+    .card {
+      background: var(--gray-900);
+      border: 1px solid var(--gray-700);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid var(--gray-700);
+    }
+    .card-header h2 {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: 26px;
+      color: var(--cream);
+      letter-spacing: 1px;
+    }
+    .card-header p {
+      color: var(--cream-muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    .card-body { padding: 28px 32px 32px; }
+
+    /* ── Event banner ────────────────────────────────────────── */
+    .event-banner {
+      background: var(--gold-faint);
+      border: 1px solid rgba(201,150,12,.3);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 28px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .event-banner-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+    .event-banner-title { font-size: 16px; font-weight: 600; color: var(--cream); }
+    .event-banner-meta  { font-size: 12px; color: var(--cream-muted); margin-top: 2px; }
+    .capacity-badge {
+      display: inline-block;
+      background: rgba(76,175,80,.15);
+      border: 1px solid rgba(76,175,80,.4);
+      color: #7ed081;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-top: 6px;
+    }
+    .capacity-badge.low { background: rgba(224,82,82,.12); border-color: rgba(224,82,82,.4); color: #e05252; }
+
+    /* ── Ticket type selector ────────────────────────────────── */
+    .ticket-types {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .ticket-option {
+      position: relative;
+      cursor: pointer;
+    }
+    .ticket-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ticket-card {
+      border: 2px solid var(--gray-600);
+      border-radius: var(--radius);
+      padding: 18px 16px;
+      transition: var(--transition);
+      user-select: none;
+    }
+    .ticket-option input:checked + .ticket-card {
+      border-color: var(--gold);
+      background: var(--gold-faint);
+    }
+    .ticket-card:hover { border-color: var(--gray-400); }
+    .ticket-option input:checked + .ticket-card:hover { border-color: var(--gold-light); }
+    .ticket-type-name {
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--cream);
+    }
+    .ticket-type-price {
+      font-family: var(--serif);
+      font-size: 22px;
+      color: var(--gold);
+      margin: 4px 0 2px;
+    }
+    .ticket-type-desc {
+      font-size: 11px;
+      color: var(--cream-muted);
+    }
+    .ticket-type-sold-out {
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--danger);
+      margin-top: 4px;
+    }
+
+    /* ── Quantity selector ───────────────────────────────────── */
+    .quantity-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .quantity-row label {
+      font-size: 13px;
+      color: var(--cream-muted);
+      letter-spacing: .5px;
+    }
+    .qty-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      border: 1px solid var(--gray-600);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .qty-btn {
+      background: var(--gray-700);
+      border: none;
+      color: var(--cream);
+      font-size: 18px;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+    }
+    .qty-btn:hover:not(:disabled) { background: var(--gray-600); color: var(--gold); }
+    .qty-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .qty-display {
+      width: 52px;
+      height: 40px;
+      background: var(--gray-800);
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--cream);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-left: 1px solid var(--gray-600);
+      border-right: 1px solid var(--gray-600);
+    }
+
+    /* ── Order summary ───────────────────────────────────────── */
+    .order-summary {
+      background: var(--gray-800);
+      border: 1px solid var(--gray-700);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 24px;
+    }
+    .order-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--cream-muted);
+      margin-bottom: 8px;
+    }
+    .order-row.total {
+      border-top: 1px solid var(--gray-700);
+      padding-top: 12px;
+      margin-top: 4px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--cream);
+    }
+    .order-row.total .amount { color: var(--gold); font-family: var(--serif); font-size: 20px; }
+
+    /* ── Form fields ─────────────────────────────────────────── */
+    .form-group { margin-bottom: 20px; }
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--cream-muted);
+      margin-bottom: 8px;
+    }
+    .form-group input {
+      width: 100%;
+      background: var(--gray-800);
+      border: 1px solid var(--gray-600);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      color: var(--cream);
+      font-size: 15px;
+      font-family: var(--sans);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    .form-group input:focus { border-color: var(--gold); }
+    .form-group input::placeholder { color: var(--gray-400); }
+    .form-group input.invalid { border-color: var(--danger); }
+    .field-error {
+      font-size: 12px;
+      color: var(--danger);
+      margin-top: 6px;
+      display: none;
+    }
+    .field-error.show { display: block; }
+
+    /* ── Payment element container ───────────────────────────── */
+    #payment-element-wrap {
+      background: var(--gray-800);
+      border: 1px solid var(--gray-600);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 20px;
+      min-height: 200px;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 24px;
+      border-radius: var(--radius);
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: none;
+      transition: var(--transition);
+    }
+    .btn-primary {
+      background: var(--gold);
+      color: var(--black);
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--gold-light); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--gray-600);
+      color: var(--cream-muted);
+      margin-bottom: 12px;
+    }
+    .btn-ghost:hover { border-color: var(--gray-400); color: var(--cream); }
+    .btn-lg { padding: 16px 24px; font-size: 15px; }
+
+    /* ── Spinner ─────────────────────────────────────────────── */
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(0,0,0,.3);
+      border-top-color: var(--black);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    .spinner.visible { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Global error / notice ───────────────────────────────── */
+    .alert {
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .alert.show { display: block; }
+    .alert-error   { background: rgba(224,82,82,.1);  border: 1px solid rgba(224,82,82,.4);  color: #e07a7a; }
+    .alert-info    { background: rgba(201,150,12,.08); border: 1px solid rgba(201,150,12,.3); color: var(--gold-light); }
+
+    /* ── Secure payment note ─────────────────────────────────── */
+    .secure-note {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--gray-400);
+      margin-top: 16px;
+      letter-spacing: .5px;
+    }
+
+    /* ── Confirmation screen ─────────────────────────────────── */
+    .confirmation-screen {
+      text-align: center;
+      padding: 48px 32px;
+    }
+    .check-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: rgba(76,175,80,.1);
+      border: 2px solid rgba(76,175,80,.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      margin: 0 auto 24px;
+      animation: pop .4s cubic-bezier(.175,.885,.32,1.275);
+    }
+    @keyframes pop {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    .confirmation-code {
+      background: var(--gold-faint);
+      border: 1px solid rgba(201,150,12,.4);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin: 24px 0;
+    }
+    .confirmation-code label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+    .confirmation-code .code {
+      font-size: 28px;
+      letter-spacing: 5px;
+      font-weight: 700;
+      color: var(--gold-light);
+    }
+
+    /* ── Loading overlay ─────────────────────────────────────── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+    }
+    #loading-overlay.show { opacity: 1; pointer-events: all; }
+    .loading-ring {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--gray-700);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    #loading-overlay p { color: var(--cream-muted); font-size: 14px; }
+
+    /* ── Steps ───────────────────────────────────────────────── */
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+    .site-footer {
+      text-align: center;
+      padding: 24px;
+      border-top: 1px solid var(--gray-700);
+      font-size: 12px;
+      color: var(--gray-400);
+    }
+    .site-footer a { color: var(--gold); text-decoration: none; }
+
+    @media (max-width: 480px) {
+      .card-header, .card-body { padding: 20px; }
+      .ticket-types { grid-template-columns: 1fr; }
+      .progress-line { width: 32px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" role="status" aria-live="polite">
+  <div class="loading-ring"></div>
+  <p id="loading-text">Procesando...</p>
+</div>
+
+<header class="site-header">
+  <a href="/">
+    <div class="logo">K O R A</div>
+    <div class="logo-sub">Cozumel, México</div>
+  </a>
+</header>
+
+<main>
+  <div class="booking-wrapper">
+
+    <!-- Progress indicator -->
+    <nav class="progress" aria-label="Pasos de reserva" id="progress-nav">
+      <div class="progress-step" id="ps-1">
+        <div class="progress-dot active" id="pd-1">1</div>
+        <div class="progress-label">Boletos</div>
+      </div>
+      <div class="progress-line" id="pl-1"></div>
+      <div class="progress-step" id="ps-2">
+        <div class="progress-dot" id="pd-2">2</div>
+        <div class="progress-label">Datos</div>
+      </div>
+      <div class="progress-line" id="pl-2"></div>
+      <div class="progress-step" id="ps-3">
+        <div class="progress-dot" id="pd-3">3</div>
+        <div class="progress-label">Pago</div>
+      </div>
+      <div class="progress-line" id="pl-3"></div>
+      <div class="progress-step" id="ps-4">
+        <div class="progress-dot" id="pd-4">✓</div>
+        <div class="progress-label">Listo</div>
+      </div>
+    </nav>
+
+    <!-- ── STEP 1: Ticket selection ─────────────────────────── -->
+    <div class="step active" id="step-1" role="region" aria-label="Selección de boletos">
+      <div class="card">
+        <div class="card-header">
+          <h2>Selecciona tus boletos</h2>
+          <p>Elige tipo y cantidad para continuar</p>
+        </div>
+        <div class="card-body">
+          <!-- Event banner (populated by JS) -->
+          <div class="event-banner" id="event-banner">
+            <div class="event-banner-icon">🎵</div>
+            <div>
+              <div class="event-banner-title" id="event-name">Cargando evento...</div>
+              <div class="event-banner-meta" id="event-meta"></div>
+              <div class="capacity-badge" id="capacity-badge"></div>
+            </div>
+          </div>
+
+          <div class="alert alert-error" id="step1-error"></div>
+
+          <!-- Ticket type -->
+          <div class="ticket-types" id="ticket-types">
+            <label class="ticket-option">
+              <input type="radio" name="ticket_type" value="general" checked>
+              <div class="ticket-card">
+                <div class="ticket-type-name">General</div>
+                <div class="ticket-type-price" id="price-general">$500 MXN</div>
+                <div class="ticket-type-desc" id="desc-general">Acceso general al evento</div>
+              </div>
+            </label>
+            <label class="ticket-option">
+              <input type="radio" name="ticket_type" value="vip">
+              <div class="ticket-card">
+                <div class="ticket-type-name">VIP</div>
+                <div class="ticket-type-price" id="price-vip">$1,200 MXN</div>
+                <div class="ticket-type-desc" id="desc-vip">Zona exclusiva + barra preferencial</div>
+              </div>
+            </label>
+          </div>
+
+          <!-- Quantity -->
+          <div class="quantity-row">
+            <label for="qty-display">Cantidad de boletos</label>
+            <div class="qty-ctrl" role="group" aria-label="Cantidad">
+              <button class="qty-btn" id="qty-dec" aria-label="Reducir" type="button">−</button>
+              <div class="qty-display" id="qty-display" aria-live="polite">1</div>
+              <button class="qty-btn" id="qty-inc" aria-label="Aumentar" type="button">+</button>
+            </div>
+          </div>
+
+          <!-- Order summary -->
+          <div class="order-summary">
+            <div class="order-row">
+              <span id="summary-desc">1× General</span>
+              <span id="summary-subtotal">$500 MXN</span>
+            </div>
+            <div class="order-row total">
+              <span>Total</span>
+              <span class="amount" id="summary-total">$500 MXN</span>
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-lg" id="btn-step1" type="button">
+            Continuar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 2: Customer details ──────────────────────────── -->
+    <div class="step" id="step-2" role="region" aria-label="Datos del comprador">
+      <div class="card">
+        <div class="card-header">
+          <h2>Tus datos</h2>
+          <p>Enviaremos la confirmación a este correo</p>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-error" id="step2-error"></div>
+
+          <div class="form-group">
+            <label for="customer-name">Nombre completo</label>
+            <input
+              type="text"
+              id="customer-name"
+              name="customer_name"
+              placeholder="Ej. María González"
+              autocomplete="name"
+              maxlength="120"
+            >
+            <div class="field-error" id="name-error">Por favor ingresa tu nombre completo</div>
+          </div>
+
+          <div class="form-group">
+            <label for="customer-email">Correo electrónico</label>
+            <input
+              type="email"
+              id="customer-email"
+              name="customer_email"
+              placeholder="tu@correo.com"
+              autocomplete="email"
+              maxlength="254"
+            >
+            <div class="field-error" id="email-error">Por favor ingresa un email válido</div>
+          </div>
+
+          <!-- Mini order recap -->
+          <div class="order-summary" style="margin-top:8px">
+            <div class="order-row">
+              <span id="recap-desc">1× General</span>
+              <span id="recap-total">$500 MXN</span>
+            </div>
+          </div>
+
+          <button class="btn btn-ghost" id="btn-back-1" type="button">← Regresar</button>
+          <button class="btn btn-primary btn-lg" id="btn-step2" type="button">
+            Ir al pago
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 3: Payment ───────────────────────────────────── -->
+    <div class="step" id="step-3" role="region" aria-label="Pago">
+      <div class="card">
+        <div class="card-header">
+          <h2>Pago seguro</h2>
+          <p id="payment-header-desc">Completando tu reserva</p>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-error" id="payment-error"></div>
+          <div class="alert alert-info" id="payment-info"></div>
+
+          <div id="payment-element-wrap">
+            <div style="display:flex;align-items:center;justify-content:center;height:160px;gap:12px">
+              <div class="loading-ring" style="width:32px;height:32px;border-width:2px"></div>
+              <span style="color:var(--cream-muted);font-size:13px">Cargando formulario de pago...</span>
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-lg" id="btn-pay" type="button" disabled>
+            <span id="pay-label">Pagar</span>
+            <span id="pay-amount"></span>
+            <div class="spinner" id="pay-spinner"></div>
+          </button>
+
+          <div class="secure-note">
+            🔒 Pago encriptado con TLS · Procesado por Stripe
+          </div>
+
+          <button class="btn btn-ghost" id="btn-back-2" type="button" style="margin-top:16px">
+            ← Regresar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STEP 4: Confirmation ──────────────────────────────── -->
+    <div class="step" id="step-4" role="region" aria-label="Confirmación">
+      <div class="card">
+        <div class="confirmation-screen">
+          <div class="check-icon">✓</div>
+          <h2 style="font-family:var(--serif);font-size:28px;font-weight:400;color:var(--cream);margin-bottom:8px">
+            ¡Reserva confirmada!
+          </h2>
+          <p style="color:var(--cream-muted);font-size:14px;max-width:360px;margin:0 auto">
+            Te enviamos los detalles a <strong id="confirm-email-display"></strong>.
+            Presenta este código en la entrada.
+          </p>
+
+          <div class="confirmation-code">
+            <label>Código de confirmación</label>
+            <div class="code" id="confirm-code">—</div>
+          </div>
+
+          <div class="order-summary" style="text-align:left">
+            <div class="order-row">
+              <span>Evento</span>
+              <span id="confirm-event">—</span>
+            </div>
+            <div class="order-row">
+              <span>Fecha</span>
+              <span id="confirm-date">—</span>
+            </div>
+            <div class="order-row">
+              <span>Boletos</span>
+              <span id="confirm-tickets">—</span>
+            </div>
+            <div class="order-row total">
+              <span>Total pagado</span>
+              <span class="amount" id="confirm-total">—</span>
+            </div>
+          </div>
+
+          <a href="/" class="btn btn-ghost" style="margin-top:8px;text-decoration:none">
+            Volver al inicio
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <p>© 2026 KORA Events · <a href="/">koramx.com</a> · Cozumel, México</p>
+</footer>
+
+<!-- Main booking logic -->
+<script src="/js/booking.js"></script>
+
+</body>
+</html>
