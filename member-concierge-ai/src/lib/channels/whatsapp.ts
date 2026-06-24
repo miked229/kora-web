@@ -36,9 +36,12 @@ export async function sendWhatsappText(to: string, text: string) {
   }
 }
 
-/** Valida la firma X-Hub-Signature-256 del webhook de Meta. */
+/**
+ * Valida la firma X-Hub-Signature-256 del webhook de Meta (HMAC con el App
+ * Secret de la app de Meta, NO con el access token).
+ */
 export function verifyWhatsappSignature(rawBody: string, signature: string | null): boolean {
-  const appSecret = process.env.WHATSAPP_ACCESS_TOKEN; // usar APP_SECRET dedicado en prod
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
   if (!appSecret || !signature) return false;
   const expected =
     "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");

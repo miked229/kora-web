@@ -1,19 +1,8 @@
 import { z } from "zod";
 import { getMemberSession } from "@/lib/auth/session";
 import { openai, chatModel } from "@/lib/ai/openai";
-import { buildSystemPrompt } from "@/lib/ai/prompts";
-import { classifyMessage, shouldEscalate } from "@/lib/ai/classify";
-import { retrieveKnowledge } from "@/lib/ai/rag";
-import { loadMemberContext } from "@/lib/services/members";
-import {
-  appendMessage,
-  assignToAgent,
-  getOrCreateConversation,
-  getHistory,
-  isConversationOwnedBy,
-} from "@/lib/services/conversations";
-import { createTicket } from "@/lib/services/tickets";
-import { recordSalesOpportunity } from "@/lib/services/sales";
+import { prepareConciergeTurn } from "@/lib/ai/orchestrator";
+import { appendMessage, isConversationOwnedBy } from "@/lib/services/conversations";
 import { jsonError } from "@/lib/utils";
 
 export const runtime = "nodejs";
@@ -25,11 +14,10 @@ const schema = z.object({
 });
 
 /**
- * Orquestador del concierge IA (canal web).
- * Flujo: auth → contexto → clasificar → RAG → generar (streaming) →
- * acciones (ticket/escala/venta) → persistir.
- * Responde texto en streaming; los metadatos (intención, escalamiento,
- * conversation_id) viajan en cabeceras.
+ * Concierge IA — canal web (streaming).
+ * Toda la lógica (clasificación, contexto, RAG, acciones) vive en el
+ * orquestador compartido; aquí solo añadimos el streaming SSE y la persistencia
+ * incremental de la respuesta.
  */
 export async function POST(request: Request) {
   const session = getMemberSession();
@@ -44,80 +32,27 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return jsonError("Mensaje inválido", 400);
 
-  const { message } = parsed.data;
   const memberId = session.member_id;
 
-  // 1) Conversación + contexto del socio (en paralelo con la clasificación).
-  //    Si llega un conversation_id, verificar que pertenece al socio.
-  let conversationId: string;
+  // Si llega un conversation_id, verificar propiedad.
   if (parsed.data.conversation_id) {
     const owned = await isConversationOwnedBy(parsed.data.conversation_id, memberId);
     if (!owned) return jsonError("Conversación no encontrada", 404);
-    conversationId = parsed.data.conversation_id;
-  } else {
-    conversationId = await getOrCreateConversation({ memberId, channel: "web" });
   }
 
-  const [context, classification, knowledge, history] = await Promise.all([
-    loadMemberContext(memberId),
-    classifyMessage(message),
-    retrieveKnowledge(message),
-    parsed.data.conversation_id ? getHistory(parsed.data.conversation_id) : Promise.resolve([]),
-  ]);
-
-  // 2) Persistir el mensaje del socio.
-  await appendMessage({
-    conversationId,
-    role: "member",
-    content: message,
-    intent: classification.intent,
-    sentiment: classification.sentiment,
+  const prep = await prepareConciergeTurn({
+    memberId,
+    channel: "web",
+    message: parsed.data.message,
+    conversationId: parsed.data.conversation_id,
+    fallbackName: session.full_name,
   });
-
-  // 3) Acciones de negocio derivadas de la clasificación.
-  const escalate = shouldEscalate(classification);
-  if (escalate) {
-    await assignToAgent(conversationId);
-    await createTicket({
-      memberId,
-      conversationId,
-      subject: `Escalamiento: ${classification.intent}`,
-      description: message,
-      classification,
-    });
-  }
-  if (classification.sales_signal.detected) {
-    await recordSalesOpportunity({
-      memberId,
-      conversationId,
-      signal: classification.sales_signal,
-    });
-  }
-
-  // 4) Construir el prompt y generar respuesta en streaming.
-  const systemPrompt = buildSystemPrompt({
-    member: context.member ?? { full_name: session.full_name, locale: "es-MX" },
-    membership: context.membership,
-    reservations: context.reservations,
-    knowledge,
-  });
-
-  const escalationNote = escalate
-    ? "\n\n[NOTA INTERNA: Esta solicitud se está escalando a un asesor humano. Tranquiliza al socio e indícale que un asesor le contactará en breve.]"
-    : "";
 
   const completion = await openai().chat.completions.create({
     model: chatModel(),
     temperature: 0.4,
     stream: true,
-    messages: [
-      { role: "system", content: systemPrompt + escalationNote },
-      ...history.map((m) => ({
-        role: m.role === "member" ? ("user" as const) : ("assistant" as const),
-        content: m.content,
-      })),
-      { role: "user", content: message },
-    ],
+    messages: prep.messages,
   });
 
   const encoder = new TextEncoder();
@@ -136,13 +71,12 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error("[chat] stream error:", err);
       } finally {
-        // Persistir la respuesta del asistente al terminar.
         await appendMessage({
-          conversationId,
+          conversationId: prep.conversationId,
           role: "assistant",
           content: assistantText,
-          intent: classification.intent,
-          sentiment: classification.sentiment,
+          intent: prep.classification.intent,
+          sentiment: prep.classification.sentiment,
         });
         controller.close();
       }
@@ -153,9 +87,9 @@ export async function POST(request: Request) {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-cache, no-transform",
-      "x-conversation-id": conversationId,
-      "x-intent": classification.intent,
-      "x-escalated": String(escalate),
+      "x-conversation-id": prep.conversationId,
+      "x-intent": prep.classification.intent,
+      "x-escalated": String(prep.escalate),
     },
   });
 }

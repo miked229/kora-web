@@ -1,31 +1,75 @@
 import { NextRequest } from "next/server";
+import {
+  listUnreadMessageIds,
+  getMessage,
+  sendReply,
+  markAsRead,
+} from "@/lib/channels/gmail";
+import { findMemberByEmail } from "@/lib/services/members";
+import { prepareConciergeTurn, completeConciergeReply } from "@/lib/ai/orchestrator";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
- * Notificación push de Gmail vía Google Pub/Sub.
+ * Notificación push de Gmail (Google Pub/Sub) → respuesta automática del
+ * concierge (end-to-end).
  *
- * En producción:
- *  1. Validar el token OIDC de Pub/Sub (Authorization: Bearer ...).
- *  2. Decodificar `message.data` (base64) → { emailAddress, historyId }.
- *  3. Llamar a gmail.users.history.list para traer los mensajes nuevos.
- *  4. Identificar al socio por email, crear/actualizar conversación y procesar.
+ * Al recibir el push, procesa los correos no leídos: identifica al socio por
+ * email, orquesta la respuesta y la envía en el mismo hilo, marcando el correo
+ * como leído (idempotencia natural: un correo leído no se reprocesa).
  *
- * El polling/lectura pesada se delega al flujo n8n "Soporte/Email entrante"
- * (ver docs/AUTOMATIONS.md) para centralizar credenciales y reintentos.
+ * En producción, valida además el token OIDC de Pub/Sub (Authorization Bearer)
+ * antes de procesar.
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
-    const data = body?.message?.data;
-    if (data) {
-      const decoded = JSON.parse(Buffer.from(data, "base64").toString("utf8"));
-      console.warn("[gmail] notificación recibida:", decoded.historyId ?? "");
-      // TODO: history.list + procesamiento (delegado a n8n en el MVP).
+    // (El cuerpo de Pub/Sub trae { message: { data } } con emailAddress/historyId;
+    //  aquí usamos la bandeja de no leídos, que es robusta ante reordenamientos.)
+    await request.json().catch(() => ({}));
+
+    const ids = await listUnreadMessageIds(10);
+    for (const id of ids) {
+      const msg = await getMessage(id);
+      if (!msg || !msg.body) {
+        await markAsRead(id);
+        continue;
+      }
+
+      const memberId = await findMemberByEmail(msg.fromEmail);
+      if (!memberId) {
+        // Remitente no reconocido: no respondemos automáticamente; queda para
+        // un asesor (el flujo n8n puede enrutarlo). Marcamos como leído para no
+        // reprocesar en cada push.
+        await markAsRead(id);
+        continue;
+      }
+
+      const prep = await prepareConciergeTurn({
+        memberId,
+        channel: "email",
+        message: `Asunto: ${msg.subject}\n\n${msg.body}`,
+        externalThreadId: msg.threadId,
+        externalId: msg.id,
+      });
+
+      if (!prep.alreadyProcessed) {
+        const reply = await completeConciergeReply(prep);
+        await sendReply({
+          to: msg.fromEmail,
+          subject: msg.subject || "Tu consulta",
+          body: reply,
+          threadId: msg.threadId,
+          inReplyTo: msg.messageIdHeader,
+        });
+      }
+      await markAsRead(id);
     }
   } catch (err) {
     console.error("[gmail] webhook error:", err);
   }
+
   // Pub/Sub espera 2xx para considerar entregado el mensaje.
-  return new Response("ok", { status: 204 });
+  // (204 no admite cuerpo; usamos 200 con confirmación.)
+  return new Response("ok", { status: 200 });
 }

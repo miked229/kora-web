@@ -1,13 +1,10 @@
 import { NextRequest } from "next/server";
 import { verifyWhatsappSignature, sendWhatsappText } from "@/lib/channels/whatsapp";
-import { findMemberByPhone, loadMemberContext } from "@/lib/services/members";
-import {
-  appendMessage,
-  getOrCreateConversation,
-} from "@/lib/services/conversations";
-import { classifyMessage } from "@/lib/ai/classify";
+import { findMemberByPhone } from "@/lib/services/members";
+import { prepareConciergeTurn, completeConciergeReply } from "@/lib/ai/orchestrator";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * Verificación del webhook (Meta hace GET con hub.challenge).
@@ -25,8 +22,10 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Entrada de mensajes de WhatsApp. Verifica firma, deduplica por `wamid`,
- * identifica al socio por teléfono y procesa con la misma lógica del concierge.
+ * Entrada de WhatsApp → respuesta automática del concierge (end-to-end):
+ * verifica firma → identifica al socio por teléfono → orquesta (clasifica,
+ * contexto, RAG, acciones) → genera respuesta → la envía por WhatsApp.
+ * Idempotente por `wamid`.
  */
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -43,52 +42,50 @@ export async function POST(request: NextRequest) {
     return new Response("Bad request", { status: 400 });
   }
 
-  // Estructura WhatsApp Cloud API.
   const value = payload?.entry?.[0]?.changes?.[0]?.value;
   const message = value?.messages?.[0];
-  if (!message) {
-    // Puede ser un status (delivered/read); responder 200 para no reintentar.
+  if (!message || message.type !== "text") {
+    // status (delivered/read) u otro tipo: 200 para no reintentar.
     return new Response("ok", { status: 200 });
   }
 
-  const from: string = message.from; // teléfono del socio (sin '+')
+  const from: string = message.from; // teléfono sin '+'
   const wamid: string = message.id;
   const text: string = message.text?.body ?? "";
-
   const phoneE164 = from.startsWith("+") ? from : `+${from}`;
-  const memberId = await findMemberByPhone(phoneE164);
 
-  if (!memberId) {
-    await sendWhatsappText(
-      from,
-      "¡Hola! Para atenderte necesito vincular tu número con tu membresía. " +
-        "Por favor responde con tu número de membresía (ej. KORA-100001).",
-    );
-    return new Response("ok", { status: 200 });
+  try {
+    const memberId = await findMemberByPhone(phoneE164);
+
+    if (!memberId) {
+      await sendWhatsappText(
+        from,
+        "¡Hola! Para atenderte necesito vincular tu número con tu membresía. " +
+          "Por favor responde con tu número de membresía (ej. KORA-100001) o " +
+          "ingresa a tu portal de socio.",
+      );
+      return new Response("ok", { status: 200 });
+    }
+
+    const prep = await prepareConciergeTurn({
+      memberId,
+      channel: "whatsapp",
+      message: text,
+      externalThreadId: phoneE164,
+      externalId: wamid,
+    });
+
+    // Reintento de Meta sobre un mensaje ya procesado: no responder de nuevo.
+    if (prep.alreadyProcessed) {
+      return new Response("ok", { status: 200 });
+    }
+
+    const reply = await completeConciergeReply(prep);
+    await sendWhatsappText(from, reply);
+  } catch (err) {
+    console.error("[whatsapp] error procesando mensaje:", err);
+    // 200 para evitar tormenta de reintentos; el mensaje queda persistido.
   }
-
-  const conversationId = await getOrCreateConversation({
-    memberId,
-    channel: "whatsapp",
-    externalThreadId: phoneE164,
-  });
-
-  const classification = await classifyMessage(text);
-
-  // Idempotencia: external_id (wamid) tiene índice único.
-  await appendMessage({
-    conversationId,
-    role: "member",
-    content: text,
-    intent: classification.intent,
-    sentiment: classification.sentiment,
-    externalId: wamid,
-  });
-
-  // En este MVP la generación de respuesta para WhatsApp se delega a n8n, que
-  // invoca el orquestador y responde con `sendWhatsappText`. Aquí confirmamos
-  // recepción y dejamos el mensaje persistido para el flujo asíncrono.
-  await loadMemberContext(memberId); // (precarga de contexto / warmup)
 
   return new Response("ok", { status: 200 });
 }

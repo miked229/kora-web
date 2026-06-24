@@ -25,11 +25,14 @@ Objetivo: **autoservicio funcional por web** que reduzca tickets.
 
 ## Fase 2 — Omnicanal (semana 7–10)
 
-- Integración **WhatsApp Business Cloud API** (entrante + saliente).
-- Integración **Gmail API** (bandeja de soporte bidireccional).
-- **n8n**: enrutado omnicanal, escalamientos, recordatorios.
-- Identidad unificada socio ↔ teléfono/email.
-- CSAT post-conversación.
+- [x] Integración **WhatsApp Business Cloud API** (entrante + respuesta
+  automática del concierge, idempotente por `wamid`).
+- [x] Integración **Gmail API** (lectura OAuth2 + respuesta automática en hilo +
+  marcado como leído).
+- [x] **Orquestador compartido** reutilizado por web, WhatsApp y email.
+- [ ] **n8n**: enrutado de remitentes no reconocidos, escalamientos, recordatorios.
+- [ ] Identidad unificada socio ↔ teléfono/email (auto-vinculación por OTP).
+- [ ] CSAT post-conversación.
 
 **Criterio de éxito:** una sola bandeja unificada; respuesta < 1 min en bot.
 

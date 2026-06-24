@@ -78,6 +78,21 @@ export async function getHistory(conversationId: string, limit = 20) {
 }
 
 /**
+ * Idempotencia para canales externos: ¿ya procesamos este mensaje?
+ * (wamid de WhatsApp, id de Gmail). Evita respuestas duplicadas ante reintentos
+ * del webhook.
+ */
+export async function messageExistsByExternalId(externalId: string): Promise<boolean> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("external_id", externalId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
+/**
  * Verifica que una conversación pertenezca al socio indicado.
  * Evita que un socio acceda a (o escriba en) conversaciones ajenas pasando un
  * `conversation_id` arbitrario.

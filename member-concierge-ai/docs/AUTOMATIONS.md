@@ -25,22 +25,31 @@ Evento estándar normalizado:
 }
 ```
 
-## 2. WhatsApp Business Cloud API
+## 2. WhatsApp Business Cloud API — respuesta automática (end-to-end ✅)
 
 - **Verificación** del webhook: `GET /api/webhooks/whatsapp` responde el
   `hub.challenge` si `hub.verify_token` coincide con `WHATSAPP_VERIFY_TOKEN`.
-- **Entrada:** `POST /api/webhooks/whatsapp` valida la firma `X-Hub-Signature-256`
-  (HMAC con el _app secret_), deduplica por `wamid`, normaliza y procesa.
+- **Entrada → respuesta:** `POST /api/webhooks/whatsapp` valida la firma
+  `X-Hub-Signature-256` (HMAC con `WHATSAPP_APP_SECRET`), identifica al socio por
+  teléfono, ejecuta el **orquestador compartido** (`src/lib/ai/orchestrator.ts`:
+  clasificación, contexto, RAG, escalamiento/ticket/venta), genera la respuesta y
+  la envía. **Idempotente por `wamid`** (no responde dos veces ante reintentos).
 - **Salida:** `src/lib/channels/whatsapp.ts` envía vía Graph API
   (`/{phone_number_id}/messages`). Plantillas aprobadas para mensajes iniciados
   por la empresa; texto libre dentro de la ventana de 24 h.
+- Si el teléfono no está vinculado a una membresía, se pide al usuario su número
+  de membresía.
 
-## 3. Gmail API
+## 3. Gmail API — respuesta automática (end-to-end ✅)
 
-- **Push** mediante Google Pub/Sub → `POST /api/webhooks/gmail` (token OIDC).
-- Se hace `users.history.list` para traer los mensajes nuevos, se convierten a
-  conversación y se responde con `users.messages.send` (hilo `In-Reply-To`).
-- Etiquetas Gmail (`Soporte/Bot`, `Soporte/Humano`) reflejan el estado.
+- **Push** mediante Google Pub/Sub → `POST /api/webhooks/gmail` (valida OIDC en
+  producción).
+- `src/lib/channels/gmail.ts` obtiene un access token vía **OAuth2 refresh
+  token**, lista los correos **no leídos** (`is:unread -from:me`), parsea el MIME,
+  identifica al socio por email, ejecuta el **orquestador compartido**, responde
+  con `users.messages.send` en el **mismo hilo** (`In-Reply-To`/`References`) y
+  marca el correo como **leído** (idempotencia natural).
+- Remitentes no reconocidos se dejan para enrutado humano (vía n8n).
 
 ## 4. Flujos de negocio en n8n
 
