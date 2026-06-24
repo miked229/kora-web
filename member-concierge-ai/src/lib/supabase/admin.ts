@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { clientEnv, getServerEnv } from "@/lib/env";
+import { isDemoMode, createDemoClient } from "@/lib/supabase/demo";
 
 /**
  * Cliente con `service_role`: OMITE RLS. Úsalo SOLO en el servidor para
@@ -12,6 +13,11 @@ import { clientEnv, getServerEnv } from "@/lib/env";
  * filtra siempre explícitamente por `member_id`.
  */
 export function createAdminClient() {
+  // Modo demo: datos en memoria, sin Supabase ni servicios externos.
+  if (isDemoMode()) {
+    return createDemoClient() as unknown as ReturnType<typeof createSupabaseClient>;
+  }
+
   const env = getServerEnv();
   return createSupabaseClient(
     clientEnv.NEXT_PUBLIC_SUPABASE_URL,

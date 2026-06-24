@@ -10,22 +10,27 @@ export const dynamic = "force-dynamic";
  * registro activo en `agents`. En desarrollo, si Supabase Auth no está
  * configurado, ajusta `ALLOW_ADMIN_PREVIEW` para previsualizar la UI.
  */
-const ALLOW_ADMIN_PREVIEW = process.env.NODE_ENV !== "production";
+const DEMO_MODE = process.env.DEMO_MODE === "true";
+const ALLOW_ADMIN_PREVIEW = process.env.NODE_ENV !== "production" || DEMO_MODE;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   let authorized = false;
-  if (user) {
-    const { data: agent } = await supabase
-      .from("agents")
-      .select("active")
-      .eq("id", user.id)
-      .maybeSingle();
-    authorized = Boolean(agent?.active);
+
+  // En modo demo no se contacta a Supabase Auth (no hay backend).
+  if (!DEMO_MODE) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: agent } = await supabase
+        .from("agents")
+        .select("active")
+        .eq("id", user.id)
+        .maybeSingle();
+      authorized = Boolean(agent?.active);
+    }
   }
 
   if (!authorized && !ALLOW_ADMIN_PREVIEW) {
