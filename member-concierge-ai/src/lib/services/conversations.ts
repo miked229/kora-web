@@ -77,6 +77,25 @@ export async function getHistory(conversationId: string, limit = 20) {
   return data ?? [];
 }
 
+/**
+ * Verifica que una conversación pertenezca al socio indicado.
+ * Evita que un socio acceda a (o escriba en) conversaciones ajenas pasando un
+ * `conversation_id` arbitrario.
+ */
+export async function isConversationOwnedBy(
+  conversationId: string,
+  memberId: string,
+): Promise<boolean> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", conversationId)
+    .eq("member_id", memberId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
 export async function assignToAgent(conversationId: string) {
   const supabase = createAdminClient();
   await supabase

@@ -10,6 +10,7 @@ import {
   assignToAgent,
   getOrCreateConversation,
   getHistory,
+  isConversationOwnedBy,
 } from "@/lib/services/conversations";
 import { createTicket } from "@/lib/services/tickets";
 import { recordSalesOpportunity } from "@/lib/services/sales";
@@ -47,9 +48,15 @@ export async function POST(request: Request) {
   const memberId = session.member_id;
 
   // 1) Conversación + contexto del socio (en paralelo con la clasificación).
-  const conversationId =
-    parsed.data.conversation_id ??
-    (await getOrCreateConversation({ memberId, channel: "web" }));
+  //    Si llega un conversation_id, verificar que pertenece al socio.
+  let conversationId: string;
+  if (parsed.data.conversation_id) {
+    const owned = await isConversationOwnedBy(parsed.data.conversation_id, memberId);
+    if (!owned) return jsonError("Conversación no encontrada", 404);
+    conversationId = parsed.data.conversation_id;
+  } else {
+    conversationId = await getOrCreateConversation({ memberId, channel: "web" });
+  }
 
   const [context, classification, knowledge, history] = await Promise.all([
     loadMemberContext(memberId),
