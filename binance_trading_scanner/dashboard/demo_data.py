@@ -62,10 +62,11 @@ def demo_klines_df(symbol: str, timeframe: Timeframe, n: int = 300) -> pd.DataFr
     open_[0] = close[0]
     open_[1:] = close[:-1]
 
-    # Wick derived from CLOSE only: deriving it from max(open, close) would tie
-    # high[i+1] to high[i] one bar after every peak and suppress swing pivots.
-    high = close * 1.0025
-    low = close * 0.9975
+    # High/low include the open (valid OHLC) but the wick is applied to CLOSE,
+    # not to max(open, close): the latter would tie high[i+1] to high[i] one bar
+    # after every peak and suppress swing pivots.
+    high = np.maximum(open_, close * 1.0025)
+    low = np.minimum(open_, close * 0.9975)
 
     change = np.abs(np.diff(close, prepend=close[0])) / np.maximum(close, 1e-9)
     vol = vol_base * (1.0 + 5.0 * change)

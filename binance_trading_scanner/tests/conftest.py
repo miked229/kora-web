@@ -43,6 +43,54 @@ def sample_klines():
     return rows
 
 
+def _bt_ohlc(close, *, step=None, start=1_600_000_000_000, wick=0.003, vol_base=1000.0, vol=None):
+    """Build a VALID-OHLC DataFrame for backtester tests (high>=open, low<=open).
+
+    Wick is applied to close (not to max(open, close)) so swing pivots survive,
+    but high/low still include the open so data-quality checks pass.
+    """
+    from core.enums import Timeframe
+    step = step or Timeframe.H1.milliseconds
+    close = np.asarray(close, dtype="float64")
+    n = len(close)
+    open_ = np.empty(n)
+    open_[0] = close[0]
+    open_[1:] = close[:-1]
+    high = np.maximum(open_, close * (1.0 + wick))
+    low = np.minimum(open_, close * (1.0 - wick))
+    if vol is None:
+        vol = np.where(close >= open_, vol_base * 1.2, vol_base * 0.9)
+    vol = np.asarray(vol, dtype="float64")
+    ot = (start + np.arange(n) * step).astype("int64")
+    ct = ot + step - 1
+    return pd.DataFrame({
+        "open_time": ot, "open": open_, "high": high, "low": low, "close": close,
+        "volume": vol, "close_time": ct, "quote_volume": vol * close,
+        "trades": np.maximum(vol / 10.0, 1).astype("int64"), "is_closed": True,
+    })
+
+
+def bt_bull(n=300, base=100.0, slope=0.55, amp=3.0, period=20, **kw):
+    """Uptrend with swings -> reliably produces LONG signals."""
+    i = np.arange(n, dtype="float64")
+    return _bt_ohlc(base + slope * i + amp * np.sin(2 * np.pi * i / period), **kw)
+
+
+def bt_bull_then_crash(n_bull=250, n_crash=25, base=100.0, drop=0.04, **kw):
+    """Bull warmup that produces a LONG, then a sharp decline through any stop."""
+    i = np.arange(n_bull, dtype="float64")
+    bull = base + 0.55 * i + 3.0 * np.sin(2 * np.pi * i / 20)
+    top = float(bull[-1])
+    crash = top * (1.0 - drop) ** np.arange(1, n_crash + 1)
+    return _bt_ohlc(np.concatenate([bull, crash]), **kw)
+
+
+def bt_flat_range(n=300, base=100.0, amp=3.0, period=24, **kw):
+    """Sideways oscillation -> no LONG setups -> no trades."""
+    i = np.arange(n, dtype="float64")
+    return _bt_ohlc(base + amp * np.sin(2 * np.pi * i / period), **kw)
+
+
 def _handler_factory(routes):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path

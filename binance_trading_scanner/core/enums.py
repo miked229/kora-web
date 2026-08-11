@@ -129,6 +129,17 @@ class SetupType(str, Enum):
     NONE = "NONE"
 
 
+class ExitReason(str, Enum):
+    """How a backtested position was closed. No other outcomes are invented."""
+
+    TP1 = "TP1"
+    TP2 = "TP2"
+    STOP_LOSS = "STOP_LOSS"
+    INVALIDATION = "INVALIDATION"
+    END_OF_TEST = "END_OF_TEST"
+    RISK_EXIT = "RISK_EXIT"
+
+
 class TradingMode(str, Enum):
     """Execution context. LIVE is deliberately a disabled sentinel."""
 
