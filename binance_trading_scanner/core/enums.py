@@ -81,6 +81,54 @@ class ScoreClass(str, Enum):
         return cls.VERY_STRONG
 
 
+class TrendClass(str, Enum):
+    """Higher-timeframe / trend classification (block A)."""
+
+    STRONG_BULLISH = "STRONG_BULLISH"
+    BULLISH = "BULLISH"
+    NEUTRAL = "NEUTRAL"
+    BEARISH = "BEARISH"
+    STRONG_BEARISH = "STRONG_BEARISH"
+
+    @property
+    def is_bullish(self) -> bool:
+        return self in (TrendClass.BULLISH, TrendClass.STRONG_BULLISH)
+
+    @property
+    def is_bearish(self) -> bool:
+        return self in (TrendClass.BEARISH, TrendClass.STRONG_BEARISH)
+
+
+class StructureClass(str, Enum):
+    """Market-structure classification (block B). Derived from swings/breakouts,
+    never from a bare moving-average cross."""
+
+    BULLISH_STRUCTURE = "BULLISH_STRUCTURE"
+    BEARISH_STRUCTURE = "BEARISH_STRUCTURE"
+    RANGE = "RANGE"
+    TRANSITION = "TRANSITION"
+
+
+class VolatilityState(str, Enum):
+    """Volatility regime (block E)."""
+
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+    EXPANSION = "EXPANSION"
+    COMPRESSION = "COMPRESSION"
+
+
+class SetupType(str, Enum):
+    """Recognised trade setups (block F). Each has its own rules."""
+
+    TREND_CONTINUATION = "TREND_CONTINUATION"
+    BREAKOUT = "BREAKOUT"
+    PULLBACK = "PULLBACK"
+    RANGE_BREAKOUT = "RANGE_BREAKOUT"
+    NONE = "NONE"
+
+
 class TradingMode(str, Enum):
     """Execution context. LIVE is deliberately a disabled sentinel."""
 

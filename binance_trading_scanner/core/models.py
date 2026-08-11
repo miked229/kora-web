@@ -11,7 +11,16 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .enums import ScoreClass, SignalType, SymbolStatus, Timeframe
+from .enums import (
+    ScoreClass,
+    SetupType,
+    SignalType,
+    StructureClass,
+    SymbolStatus,
+    Timeframe,
+    TrendClass,
+    VolatilityState,
+)
 
 
 def _utc(ms: int) -> datetime:
@@ -207,24 +216,46 @@ class SymbolInfo(BaseModel):
 class Signal(BaseModel):
     """A fully-explained trade signal produced by the signal engine.
 
-    Populated in Phase 3; defined here so persistence and the dashboard can be
-    built against a stable schema.
+    Design goals:
+      * Explainable — ``reasons`` / ``warnings`` / ``invalidation_conditions``
+        are derived from real calculated conditions, never generic text.
+      * Separable — ``raw_score`` (confluence strength) is kept distinct from the
+        ``signal`` (final decision), so a strong-but-filtered setup remains
+        auditable (e.g. raw_score=84 but signal=NO_TRADE).
+      * Stable — extra Phase-3 fields are additive; existing persistence keeps
+        working. Spec-named accessors (``direction``, ``stop_loss``, ...) are
+        exposed as read-only properties over the stored fields.
+
+    ``score`` reflects the strength of the system's confluence rules. It is NOT
+    a probability of winning.
     """
 
     symbol: str
     timeframe: Timeframe
-    signal: SignalType
-    score: float = 0.0
+    signal: SignalType                       # final decision (a.k.a. direction)
+    score: float = 0.0                       # confluence strength 0..100
+    raw_score: float = 0.0                   # pre-filter score (auditing)
     score_class: ScoreClass = ScoreClass.NO_TRADE
     reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    invalidation_conditions: List[str] = Field(default_factory=list)
     entry: Optional[float] = None
     stop: Optional[float] = None
     take_profits: List[float] = Field(default_factory=list)
-    invalidation: Optional[float] = None
+    invalidation: Optional[float] = None     # numeric invalidation level
     risk_reward: Optional[float] = None
+    # Analysis context (optional; populated by the engine)
+    setup_type: Optional[SetupType] = None
+    entry_reason: Optional[str] = None
+    stop_method: Optional[str] = None
+    trend_class: Optional[TrendClass] = None
+    structure_class: Optional[StructureClass] = None
+    volatility_state: Optional[VolatilityState] = None
+    blocked_by: List[str] = Field(default_factory=list)
+    block_scores: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    @field_validator("score")
+    @field_validator("score", "raw_score")
     @classmethod
     def _score_range(cls, v: float) -> float:
         if not 0 <= v <= 100:
@@ -236,3 +267,28 @@ class Signal(BaseModel):
         # Keep the classification consistent with the numeric score.
         self.score_class = ScoreClass.from_score(self.score)
         return self
+
+    # --- spec-named read-only accessors (no new storage) ---
+    @property
+    def direction(self) -> SignalType:
+        return self.signal
+
+    @property
+    def confidence_label(self) -> ScoreClass:
+        return self.score_class
+
+    @property
+    def timestamp(self) -> datetime:
+        return self.created_at
+
+    @property
+    def stop_loss(self) -> Optional[float]:
+        return self.stop
+
+    @property
+    def take_profit_1(self) -> Optional[float]:
+        return self.take_profits[0] if len(self.take_profits) >= 1 else None
+
+    @property
+    def take_profit_2(self) -> Optional[float]:
+        return self.take_profits[1] if len(self.take_profits) >= 2 else None
