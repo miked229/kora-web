@@ -83,52 +83,107 @@ def run_dashboard() -> None:
     configure_logging(settings.log_level)
 
     st.set_page_config(page_title="Binance Trading Scanner Pro", page_icon="📊", layout="wide")
+    from dashboard import chart, overview, scanner, signal_details
+    from dashboard import settings as settings_page
+    from dashboard.service import DEMO, LIVE
+
     st.title("📊 Binance Trading Scanner Pro")
     st.caption(
         "Educational research tool. **No live orders are placed.** "
-        "Signals reflect the system's confluence rules, not a probability of profit."
+        "Scores reflect the system's confluence rules, not a probability of profit."
     )
+
+    settings_page.init_state(settings)
+    ss = st.session_state
+    service = _service_for(settings, ss)
+    live_ok = service.probe_live()
 
     # --- Sidebar controls ---
     with st.sidebar:
         st.header("Controls")
-        mode = st.selectbox("Mode", [m.value for m in TradingMode],
-                            index=list(TradingMode).index(settings.mode))
-        if mode == TradingMode.LIVE_DISABLED.value:
-            st.error("LIVE trading is disabled.")
-        symbol = st.selectbox("Symbol", settings.symbols)
-        timeframe = st.selectbox(
-            "Timeframe", [t.value for t in settings.timeframes],
-            index=[t.value for t in settings.timeframes].index(settings.default_timeframe.value),
+        st.selectbox("Mode", [m.value for m in TradingMode],
+                     index=list(TradingMode).index(TradingMode.LIVE_DISABLED),
+                     disabled=True, help="Live trading is disabled in this build.")
+
+        source_label = st.radio(
+            "Data source",
+            ["Demo (synthetic)", "Live (Binance)"],
+            index=0 if ss["source"] == DEMO else 1,
+            key="source_radio",
         )
-        st.number_input("Capital", value=float(settings.capital), min_value=0.0, step=100.0)
-        st.number_input("Risk per trade (%)", value=settings.risk_per_trade * 100,
-                        min_value=0.1, max_value=50.0, step=0.1)
+        ss["source"] = DEMO if source_label.startswith("Demo") else LIVE
+        st.caption(f"Live endpoint: {'reachable' if live_ok else 'UNREACHABLE'}")
+
+        ss["selected_symbol"] = st.selectbox(
+            "Symbol", ss["symbols"],
+            index=_safe_index(ss["symbols"], ss.get("selected_symbol")),
+        )
+        ss["timeframe"] = st.selectbox(
+            "Timeframe", [t.value for t in Timeframe],
+            index=[t.value for t in Timeframe].index(ss["timeframe"]),
+        )
+        st.metric("Capital", f"{ss['capital']:,.0f}")
+        st.metric("Risk / trade", f"{ss['risk_pct']:.1f}%")
+        if st.button("↻ Refresh data"):
+            service.clear_cache()
+            st.rerun()
         st.divider()
-        st.caption(f"REST: {settings.rest_base}")
+        page = st.radio("Page", ["Overview", "Scanner", "Chart", "Signal Details", "Settings"],
+                        index=_safe_index(
+                            ["Overview", "Scanner", "Chart", "Signal Details", "Settings"],
+                            ss.get("page", "Overview")),
+                        key="page_radio")
+        ss["page"] = page
 
-    client, market, exinfo = build_services(settings)
-    try:
-        st.subheader("Market Overview")
-        cols = st.columns(4)
-        overview_symbols = settings.symbols[:4] or ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
-        for col, sym in zip(cols, overview_symbols):
-            with col:
-                try:
-                    t = market.get_ticker(sym)
-                    st.metric(sym, f"{t.last_price:,.4f}", f"{t.price_change_pct:+.2f}%")
-                    st.caption(f"24h quote vol: {t.quote_volume:,.0f}")
-                except Exception as exc:  # one symbol failing must not break the page
-                    st.metric(sym, "—")
-                    st.caption(f"unavailable: {type(exc).__name__}")
-
-        st.info(
-            "Indicators, scoring, scanner table, charts, backtesting and paper "
-            "trading arrive in later phases. This Phase 1 build validates the "
-            "data foundation."
+    # --- Live availability banner ---
+    if ss["source"] == LIVE and not live_ok:
+        st.error(
+            "🔌 **LIVE DATA UNAVAILABLE** — the Binance public API is not reachable "
+            "from this environment. Switch **Data source** to *Demo (synthetic)* in "
+            "the sidebar to explore the interface with clearly-labelled fake data."
         )
-    finally:
-        client.close()
+
+    tf = Timeframe.from_value(ss["timeframe"])
+    symbols = ss["symbols"]
+    source = ss["source"]
+
+    if page == "Overview":
+        overview.render(service, symbols, tf, source)
+    elif page == "Scanner":
+        scanner.render(service, symbols, tf, source)
+    elif page == "Chart":
+        chart.render(service, symbols, tf, source, ss["selected_symbol"])
+    elif page == "Signal Details":
+        signal_details.render(service, symbols, tf, source, ss["selected_symbol"])
+    elif page == "Settings":
+        settings_page.render(settings)
+
+
+def _service_for(settings, ss):
+    """Build (and cache in session_state) a DashboardService for the current
+    engine thresholds; rebuild only when those thresholds change."""
+    from dashboard.service import DashboardService
+    from signals import EngineConfig
+
+    sig = (settings.rest_base, ss["min_rr"], ss["min_score_long"])
+    if ss.get("_svc_sig") != sig:
+        old = ss.get("_service")
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
+        cfg = EngineConfig(min_rr=float(ss["min_rr"]), min_score_long=float(ss["min_score_long"]))
+        ss["_service"] = DashboardService(settings, cfg)
+        ss["_svc_sig"] = sig
+    return ss["_service"]
+
+
+def _safe_index(options, value) -> int:
+    try:
+        return options.index(value)
+    except (ValueError, AttributeError):
+        return 0
 
 
 def main() -> None:
