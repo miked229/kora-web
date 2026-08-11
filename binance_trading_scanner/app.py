@@ -83,9 +83,10 @@ def run_dashboard() -> None:
     configure_logging(settings.log_level)
 
     st.set_page_config(page_title="Binance Trading Scanner Pro", page_icon="📊", layout="wide")
-    from dashboard import chart, overview, paper, scanner, signal_details
+    from dashboard import chart, execution, overview, paper, scanner, signal_details
     from dashboard import settings as settings_page
     from dashboard.service import DEMO, LIVE
+    from trading import TradingState, mode_indicator
 
     st.title("📊 Binance Trading Scanner Pro")
     st.caption(
@@ -95,6 +96,16 @@ def run_dashboard() -> None:
 
     settings_page.init_state(settings)
     ss = st.session_state
+    ss.setdefault("trading_state", TradingState.DISABLED.value)
+
+    # Permanent, unambiguous mode indicator (spec 17).
+    _mode = mode_indicator(data_source=ss["source"],
+                           state=TradingState(ss["trading_state"]), live_enabled=False)
+    st.markdown(
+        f"<div style='display:inline-block;background:#111827;color:#f8fafc;padding:4px 12px;"
+        f"border-radius:14px;font-weight:700;font-size:0.9rem'>{_mode}</div>",
+        unsafe_allow_html=True,
+    )
     service = _service_for(settings, ss)
     live_ok = service.probe_live()
 
@@ -128,7 +139,8 @@ def run_dashboard() -> None:
             service.clear_cache()
             st.rerun()
         st.divider()
-        pages = ["Overview", "Scanner", "Chart", "Signal Details", "Paper Trading", "Settings"]
+        pages = ["Overview", "Scanner", "Chart", "Signal Details", "Paper Trading",
+                 "Live / Execution", "Settings"]
         page = st.radio("Page", pages,
                         index=_safe_index(pages, ss.get("page", "Overview")),
                         key="page_radio")
@@ -156,6 +168,8 @@ def run_dashboard() -> None:
         signal_details.render(service, symbols, tf, source, ss["selected_symbol"])
     elif page == "Paper Trading":
         paper.render(service, symbols, tf, source, ss["selected_symbol"])
+    elif page == "Live / Execution":
+        execution.render(service, symbols, tf, source)
     elif page == "Settings":
         settings_page.render(settings)
 
