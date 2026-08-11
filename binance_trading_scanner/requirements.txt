@@ -1,0 +1,25 @@
+# ============================================================================
+# Binance Trading Scanner Pro — Python dependencies
+# Python 3.11+
+# ============================================================================
+
+# --- Core data / numerics ---
+pandas>=2.1
+numpy>=1.26
+
+# --- Validation / config ---
+pydantic>=2.5
+python-dotenv>=1.0
+
+# --- HTTP (REST) ---
+httpx>=0.27
+
+# --- Real-time data (WebSocket) ---
+websockets>=12.0
+
+# --- Dashboard / charts ---
+streamlit>=1.32
+plotly>=5.20
+
+# --- Testing ---
+pytest>=8.0
