@@ -83,7 +83,7 @@ def run_dashboard() -> None:
     configure_logging(settings.log_level)
 
     st.set_page_config(page_title="Binance Trading Scanner Pro", page_icon="📊", layout="wide")
-    from dashboard import chart, overview, scanner, signal_details
+    from dashboard import chart, overview, paper, scanner, signal_details
     from dashboard import settings as settings_page
     from dashboard.service import DEMO, LIVE
 
@@ -128,10 +128,9 @@ def run_dashboard() -> None:
             service.clear_cache()
             st.rerun()
         st.divider()
-        page = st.radio("Page", ["Overview", "Scanner", "Chart", "Signal Details", "Settings"],
-                        index=_safe_index(
-                            ["Overview", "Scanner", "Chart", "Signal Details", "Settings"],
-                            ss.get("page", "Overview")),
+        pages = ["Overview", "Scanner", "Chart", "Signal Details", "Paper Trading", "Settings"]
+        page = st.radio("Page", pages,
+                        index=_safe_index(pages, ss.get("page", "Overview")),
                         key="page_radio")
         ss["page"] = page
 
@@ -155,6 +154,8 @@ def run_dashboard() -> None:
         chart.render(service, symbols, tf, source, ss["selected_symbol"])
     elif page == "Signal Details":
         signal_details.render(service, symbols, tf, source, ss["selected_symbol"])
+    elif page == "Paper Trading":
+        paper.render(service, symbols, tf, source, ss["selected_symbol"])
     elif page == "Settings":
         settings_page.render(settings)
 

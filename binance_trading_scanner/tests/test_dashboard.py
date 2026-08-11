@@ -180,6 +180,6 @@ def test_app_renders_overview():
 def test_app_all_pages_render():
     at = _app().run()
     assert not at.exception
-    for page in ["Scanner", "Chart", "Signal Details", "Settings", "Overview"]:
+    for page in ["Scanner", "Chart", "Signal Details", "Paper Trading", "Settings", "Overview"]:
         at.radio(key="page_radio").set_value(page).run()
         assert not at.exception, f"exception rendering page {page}"

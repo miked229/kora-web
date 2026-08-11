@@ -11,6 +11,7 @@ from .execution import AmbiguityPolicy, EntryTiming, ExecutionConfig
 from .metrics import Metrics, compute_metrics
 from .portfolio import Portfolio, RiskLimits, SizingResult, position_size
 from .report import format_report, signal_stats, summary_dict, trade_distribution
+from .simulator import Simulator, StepResult
 from .trade import Leg, Position, Trade
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "ExecutionConfig", "EntryTiming", "AmbiguityPolicy",
     "Portfolio", "RiskLimits", "SizingResult", "position_size",
     "Trade", "Position", "Leg",
+    "Simulator", "StepResult",
     "Metrics", "compute_metrics",
     "split_in_out", "walk_forward_windows", "Split",
     "format_report", "summary_dict", "trade_distribution", "signal_stats",
