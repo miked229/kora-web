@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from core.enums import (
     SetupType,
+    SignalType,
     StructureClass,
     TrendClass,
     VolatilityState,
@@ -96,6 +97,10 @@ class EngineConfig(BaseModel):
     rsi_oversold: float = 30.0
     rsi_bull_low: float = 45.0
     rsi_bull_high: float = 70.0
+    # SHORT mirror of the bull zone (defaults are the 100-complement of the bull
+    # band: healthy short RSI sits in [30, 55], mirroring healthy long [45, 70]).
+    rsi_bear_low: float = 30.0
+    rsi_bear_high: float = 55.0
 
     # volume
     rvol_high: float = 1.3
@@ -125,6 +130,11 @@ class EngineConfig(BaseModel):
 
     # decision
     min_score_long: float = 40.0
+    min_score_short: float = 40.0
+    # When BOTH a long and a short setup qualify, the two raw scores must differ
+    # by at least this margin to pick a side; otherwise the direction is
+    # ambiguous and the engine returns NO_TRADE.
+    direction_ambiguity_margin: float = 5.0
 
     # liquidity (optional absolute floor on quote volume, if the caller has it)
     min_quote_volume: Optional[float] = None
@@ -628,6 +638,7 @@ def evaluate_risk(
     risk_reward: Optional[float],
     atr_v: Optional[float],
     cfg: EngineConfig,
+    side: SignalType = SignalType.LONG,
 ) -> BlockResult:
     score = 0.0
     reasons: List[str] = []
@@ -638,9 +649,12 @@ def evaluate_risk(
         warnings.append("Risk not assessable (no valid entry/stop)")
         return BlockResult("risk", 0.0, cfg.weights.risk, status, reasons, warnings)
 
-    risk = entry - stop
+    # Direction-aware risk-per-unit: LONG risks a drop to the stop below entry,
+    # SHORT risks a rise to the stop above entry. Both must be strictly positive.
+    risk = (entry - stop) if side is SignalType.LONG else (stop - entry)
     if risk <= 0:
-        warnings.append("Invalid stop (not below entry)")
+        side_word = "below" if side is SignalType.LONG else "above"
+        warnings.append(f"Invalid stop (not {side_word} entry)")
         return BlockResult("risk", 0.0, cfg.weights.risk, "invalid", reasons, warnings)
 
     # Reward:risk quality
@@ -664,3 +678,255 @@ def evaluate_risk(
 
     status = "ok" if score >= 3 else "weak"
     return BlockResult("risk", score, cfg.weights.risk, status, reasons, warnings).clamp()
+
+
+# ==========================================================================
+# SHORT mirror blocks
+# --------------------------------------------------------------------------
+# These are the exact bearish reflection of the LONG blocks above. They are kept
+# as separate functions (not a `side` switch inside the LONG blocks) so the LONG
+# path stays byte-identical and every bearish rule is independently auditable.
+# LONG and SHORT are evaluated INDEPENDENTLY: a lack of a long setup is never a
+# short, and vice-versa. Volatility and setup-quality scoring are direction
+# neutral, so they are reused as-is (no *_short variant needed).
+# ==========================================================================
+
+def evaluate_trend_short(snap: MarketSnapshot, cfg: EngineConfig) -> tuple[BlockResult, TrendClass]:
+    close = _last(snap.close)
+    e20, e50, e200 = _last(snap.ema20), _last(snap.ema50), _last(snap.ema200)
+    adx_v = _last(snap.adx["adx"]) if "adx" in snap.adx else None
+    pdi = _last(snap.adx["plus_di"]) if "plus_di" in snap.adx else None
+    mdi = _last(snap.adx["minus_di"]) if "minus_di" in snap.adx else None
+
+    score = 0.0
+    reasons: List[str] = []
+    warnings: List[str] = []
+
+    if close is not None and e200 is not None:
+        if close < e200:
+            score += 8
+            reasons.append("Price below EMA200")
+        else:
+            warnings.append("Price above EMA200 (long-term bullish)")
+    else:
+        warnings.append("EMA200 unavailable (insufficient history)")
+
+    if e20 is not None and e50 is not None:
+        if e20 < e50:
+            score += 6
+            reasons.append("EMA20 below EMA50")
+        else:
+            warnings.append("EMA20 above EMA50")
+
+    if e50 is not None and e200 is not None:
+        if e50 < e200:
+            score += 6
+            reasons.append("EMA50 below EMA200")
+        else:
+            warnings.append("EMA50 above EMA200")
+
+    if adx_v is not None and pdi is not None and mdi is not None:
+        if adx_v >= cfg.adx_trend and mdi > pdi:
+            score += 5
+            reasons.append(f"ADX {adx_v:.0f} strong with -DI>+DI")
+        elif adx_v >= cfg.adx_weak and mdi > pdi:
+            score += 3
+            reasons.append(f"ADX {adx_v:.0f} building with -DI>+DI")
+        elif pdi > mdi:
+            warnings.append(f"+DI above -DI (bullish directional, ADX {adx_v:.0f})")
+
+    tc = classify_trend(close, e20, e50, e200, adx_v, pdi, mdi, cfg)
+    res = BlockResult("trend", score, cfg.weights.trend, tc.value, reasons, warnings).clamp()
+    return res, tc
+
+
+def evaluate_structure_short(snap: MarketSnapshot, cfg: EngineConfig) -> tuple[BlockResult, StructureClass]:
+    st = snap.structure
+    sc = classify_structure(st)
+    close = _last(snap.close)
+    breakout_down = _last_bool(snap.breakout, "breakout_down")
+
+    score = 0.0
+    reasons: List[str] = []
+    warnings: List[str] = []
+
+    if sc == StructureClass.BEARISH_STRUCTURE:
+        score += 12
+        reasons.append("Bearish structure (lower high & lower low)")
+    elif sc == StructureClass.RANGE:
+        score += 5
+        reasons.append("Ranging structure (swings both sides)")
+    elif sc == StructureClass.TRANSITION:
+        score += 2
+        warnings.append("Structure in transition (insufficient confirmed swings)")
+    else:
+        warnings.append("Bullish structure (higher high & higher low)")
+
+    if breakout_down:
+        score += 5
+        reasons.append("Breakdown below prior range confirmed")
+
+    if close is not None and snap.sr.nearest_resistance is not None and close < snap.sr.nearest_resistance:
+        score += 3
+        reasons.append(f"Holding below resistance {snap.sr.nearest_resistance:.4f}")
+
+    if close is not None and snap.sr.nearest_support is not None:
+        warnings.append(f"Support nearby at {snap.sr.nearest_support:.4f}")
+
+    res = BlockResult("structure", score, cfg.weights.structure, sc.value, reasons, warnings).clamp()
+    return res, sc
+
+
+def evaluate_momentum_short(snap: MarketSnapshot, trend: TrendClass, cfg: EngineConfig) -> BlockResult:
+    rsi_v = _last(snap.rsi)
+    macd_line = _last(snap.macd["macd"]) if "macd" in snap.macd else None
+    macd_sig = _last(snap.macd["signal"]) if "signal" in snap.macd else None
+    hist = _last(snap.macd["hist"]) if "hist" in snap.macd else None
+    k = _last(snap.stoch["k"]) if "k" in snap.stoch else None
+
+    score = 0.0
+    reasons: List[str] = []
+    warnings: List[str] = []
+    status = "neutral"
+
+    # MACD: bearish only when line<signal AND histogram negative.
+    if macd_line is not None and macd_sig is not None and hist is not None:
+        if macd_line < macd_sig and hist < 0:
+            score += 5
+            reasons.append("MACD negative (line below signal)")
+        elif hist > 0:
+            warnings.append("MACD histogram positive")
+
+    # RSI interpreted in trend context (mirror of the long rule: a high RSI in an
+    # uptrend is NOT a short trigger).
+    if rsi_v is not None:
+        if trend.is_bullish:
+            if rsi_v > cfg.rsi_overbought:
+                warnings.append(f"RSI {rsi_v:.0f} overbought within an uptrend (not a short)")
+            else:
+                warnings.append(f"RSI {rsi_v:.0f} in a bullish context")
+        else:
+            if cfg.rsi_bear_low <= rsi_v <= cfg.rsi_bear_high:
+                score += 6
+                reasons.append(f"RSI {rsi_v:.0f} healthy for downside continuation")
+            elif rsi_v < cfg.rsi_oversold:
+                score += 2
+                warnings.append(f"RSI {rsi_v:.0f} oversold (bounce risk)")
+            elif rsi_v > cfg.rsi_bear_high:
+                score += 2
+                reasons.append(f"RSI {rsi_v:.0f} rolling over")
+
+    # Stochastic RSI: reward turning down from the upper half, flag oversold.
+    if k is not None:
+        if k > 50 and not trend.is_bullish:
+            score += 4
+            reasons.append(f"StochRSI %K {k:.0f} turning down from upper half")
+        elif k < 20:
+            warnings.append(f"StochRSI %K {k:.0f} oversold")
+
+    if score >= 10:
+        status = "bearish"
+    elif score <= 2:
+        status = "weak"
+    return BlockResult("momentum", score, cfg.weights.momentum, status, reasons, warnings).clamp()
+
+
+def evaluate_volume_short(snap: MarketSnapshot, cfg: EngineConfig) -> BlockResult:
+    rvol = _last(snap.rvol)
+    close = _last(snap.close)
+    open_ = _last(snap.open)
+    vwap_v = _last(snap.vwap)
+    vol = _last(snap.volume)
+    vol_sma = _last(snap.vol_sma)
+
+    down_candle = close is not None and open_ is not None and close <= open_
+    obv_falling = False
+    if snap.obv is not None and len(snap.obv) > cfg.obv_lookback:
+        past = snap.obv.iloc[-1 - cfg.obv_lookback]
+        obv_falling = (not pd.isna(past)) and snap.obv.iloc[-1] < past
+
+    score = 0.0
+    reasons: List[str] = []
+    warnings: List[str] = []
+
+    if rvol is not None:
+        if rvol >= cfg.rvol_high:
+            if down_candle or obv_falling:
+                score += 5
+                reasons.append(f"Relative volume {rvol:.2f} confirming the decline")
+            else:
+                warnings.append(f"High relative volume {rvol:.2f} on an up candle")
+        elif rvol < cfg.rvol_low:
+            warnings.append(f"Below-average volume (RVOL {rvol:.2f})")
+
+    if obv_falling:
+        score += 5
+        reasons.append("OBV falling (distribution)")
+    else:
+        warnings.append("OBV not falling")
+
+    if close is not None and vwap_v is not None and close < vwap_v:
+        score += 3
+        reasons.append("Price below VWAP")
+
+    if vol is not None and vol_sma is not None and vol_sma > 0 and vol > vol_sma:
+        score += 2
+        reasons.append("Volume above its 20-period average")
+
+    confirmed = score >= 8
+    status = "confirmed" if confirmed else "unconfirmed"
+    return BlockResult("volume", score, cfg.weights.volume, status, reasons, warnings).clamp()
+
+
+def detect_setup_short(
+    snap: MarketSnapshot, trend: TrendClass, structure: StructureClass, cfg: EngineConfig
+) -> SetupInfo:
+    """Identify which (if any) SHORT setup is occurring — the mirror of
+    ``detect_setup``. Structure references are inverted: a short leans on
+    resistance / swing highs, never on support."""
+    close = _last(snap.close)
+    open_ = _last(snap.open)
+    e20 = _last(snap.ema20)
+    atr_v = _last(snap.atr)
+    rvol = _last(snap.rvol)
+    breakout_down = _last_bool(snap.breakout, "breakout_down")
+    down_candle = close is not None and open_ is not None and close <= open_
+    vol_ok = rvol is not None and rvol >= cfg.rvol_high
+
+    # D. Range breakdown — breaking OUT of a range to the downside.
+    if structure == StructureClass.RANGE and breakout_down and down_candle:
+        return SetupInfo(
+            SetupType.RANGE_BREAKOUT,
+            entry_reason="Close breaking below range support",
+            reasons=["Range breakdown: close below prior range low"],
+            warnings=[] if vol_ok else ["Range breakdown lacks volume confirmation"],
+        )
+
+    # B/C. Within an established downtrend: pullback (rally into EMA20) or
+    # trend continuation. A breakdown close inside an ongoing downtrend is
+    # continuation, not a fresh breakdown.
+    if trend.is_bearish and structure == StructureClass.BEARISH_STRUCTURE:
+        if None not in (close, e20, atr_v):
+            near_ema = abs(close - e20) <= cfg.pullback_atr_mult * atr_v
+            if near_ema and down_candle and close <= e20:
+                return SetupInfo(
+                    SetupType.PULLBACK,
+                    entry_reason="Bearish rally into EMA20 resuming lower",
+                    reasons=["Rally into EMA20 within a downtrend"],
+                )
+        return SetupInfo(
+            SetupType.TREND_CONTINUATION,
+            entry_reason="Trend continuation in an established downtrend",
+            reasons=["Trend continuation: bearish trend with bearish structure"],
+        )
+
+    # A. Fresh breakdown from a top/transition (not already bullish).
+    if breakout_down and down_candle and not trend.is_bullish:
+        return SetupInfo(
+            SetupType.BREAKOUT,
+            entry_reason="Close breaking below prior swing range",
+            reasons=["Breakdown: close below prior range low"],
+            warnings=[] if vol_ok else ["Breakdown lacks volume confirmation"],
+        )
+
+    return SetupInfo(SetupType.NONE, warnings=["No qualifying short setup"])

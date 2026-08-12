@@ -233,8 +233,10 @@ class Signal(BaseModel):
     symbol: str
     timeframe: Timeframe
     signal: SignalType                       # final decision (a.k.a. direction)
-    score: float = 0.0                       # confluence strength 0..100
-    raw_score: float = 0.0                   # pre-filter score (auditing)
+    score: float = 0.0                       # confluence strength 0..100 (winning side)
+    raw_score: float = 0.0                   # pre-filter score of the reported side (auditing)
+    long_score: float = 0.0                  # independent LONG confluence 0..100
+    short_score: float = 0.0                 # independent SHORT confluence 0..100
     score_class: ScoreClass = ScoreClass.NO_TRADE
     reasons: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
@@ -255,7 +257,7 @@ class Signal(BaseModel):
     block_scores: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    @field_validator("score", "raw_score")
+    @field_validator("score", "raw_score", "long_score", "short_score")
     @classmethod
     def _score_range(cls, v: float) -> float:
         if not 0 <= v <= 100:

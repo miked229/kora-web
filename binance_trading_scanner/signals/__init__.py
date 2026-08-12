@@ -12,6 +12,7 @@ from .scoring import (
     MarketSnapshot,
     compute_snapshot,
     detect_setup,
+    detect_setup_short,
 )
 from .signal_engine import SignalEngine, format_signal
 
@@ -24,4 +25,5 @@ __all__ = [
     "MarketSnapshot",
     "compute_snapshot",
     "detect_setup",
+    "detect_setup_short",
 ]

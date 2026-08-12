@@ -46,13 +46,34 @@ class Timeframe(str, Enum):
 class SignalType(str, Enum):
     """Directional decision emitted by the signal engine.
 
-    SHORT is intentionally absent: Spot trading is long/flat only in the
-    initial phases of the project.
+    The engine is symmetric: LONG and SHORT are evaluated INDEPENDENTLY (a lack
+    of a LONG setup is never treated as a SHORT, and vice-versa). NEUTRAL means
+    "no qualifying setup in either direction"; NO_TRADE means a setup existed but
+    was rejected (low score, ambiguous direction, filter veto, bad plan, ...).
+
+    SHORT is a *signal* only. Whether a SHORT can actually be executed depends on
+    the execution backend: Spot cannot short natively, so a SHORT signal on Spot
+    is surfaced but never converted into a SELL order (see trading.ExecutionBackend).
     """
 
     LONG = "LONG"
+    SHORT = "SHORT"
     NEUTRAL = "NEUTRAL"
     NO_TRADE = "NO_TRADE"
+
+    @property
+    def is_directional(self) -> bool:
+        """True for LONG/SHORT (an actionable trade direction)."""
+        return self in (SignalType.LONG, SignalType.SHORT)
+
+    @property
+    def sign(self) -> int:
+        """+1 for LONG, -1 for SHORT, 0 otherwise."""
+        if self is SignalType.LONG:
+            return 1
+        if self is SignalType.SHORT:
+            return -1
+        return 0
 
 
 class ScoreClass(str, Enum):

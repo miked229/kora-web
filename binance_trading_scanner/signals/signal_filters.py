@@ -14,14 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from core.enums import SetupType, StructureClass, TrendClass
+from core.enums import SetupType, SignalType, StructureClass, TrendClass
 
 
 @dataclass
 class FilterContext:
     n_bars: int
     min_bars: int
-    candidate_long: bool
+    candidate: bool                       # a qualifying setup exists in ``direction``
     atr_pct: Optional[float]
     atr_pct_extreme: float
     rvol: Optional[float]
@@ -34,6 +34,7 @@ class FilterContext:
     min_rr: float
     htf_trend: Optional[TrendClass]
     volume_confirmed: bool
+    direction: SignalType = SignalType.LONG   # side being evaluated (LONG/SHORT)
 
 
 @dataclass
@@ -85,7 +86,7 @@ def _extreme_volatility(ctx: FilterContext) -> FilterResult:
 
 
 def _invalid_structure(ctx: FilterContext) -> FilterResult:
-    if not ctx.candidate_long:
+    if not ctx.candidate:
         return FilterResult("invalid_structure", True, "block")
     ok = ctx.structure_class != StructureClass.TRANSITION
     return FilterResult("invalid_structure", ok, "block",
@@ -93,7 +94,7 @@ def _invalid_structure(ctx: FilterContext) -> FilterResult:
 
 
 def _poor_risk_reward(ctx: FilterContext) -> FilterResult:
-    if not ctx.candidate_long or ctx.risk_reward is None:
+    if not ctx.candidate or ctx.risk_reward is None:
         return FilterResult("poor_risk_reward", True, "block")
     ok = ctx.risk_reward >= ctx.min_rr
     return FilterResult("poor_risk_reward", ok, "block",
@@ -101,17 +102,21 @@ def _poor_risk_reward(ctx: FilterContext) -> FilterResult:
 
 
 def _conflicting_htf(ctx: FilterContext) -> FilterResult:
-    if not ctx.candidate_long or ctx.htf_trend is None:
+    if not ctx.candidate or ctx.htf_trend is None:
         return FilterResult("conflicting_higher_timeframe", True, "block")
-    ok = not ctx.htf_trend.is_bearish
+    # A LONG conflicts with a bearish HTF; a SHORT conflicts with a bullish HTF.
+    if ctx.direction is SignalType.SHORT:
+        ok = not ctx.htf_trend.is_bullish
+    else:
+        ok = not ctx.htf_trend.is_bearish
     return FilterResult("conflicting_higher_timeframe", ok, "block",
                         "" if ok else f"Higher timeframe is {ctx.htf_trend.value}")
 
 
 def _no_volume_confirmation(ctx: FilterContext) -> FilterResult:
-    # Only breakouts strictly require volume confirmation.
+    # Only breakouts/breakdowns strictly require volume confirmation.
     is_breakout = ctx.setup in (SetupType.BREAKOUT, SetupType.RANGE_BREAKOUT)
-    if not ctx.candidate_long or not is_breakout:
+    if not ctx.candidate or not is_breakout:
         return FilterResult("no_volume_confirmation", True, "block")
     ok = ctx.volume_confirmed
     return FilterResult("no_volume_confirmation", ok, "block",

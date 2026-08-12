@@ -57,11 +57,38 @@ def test_strong_bullish_trend_is_long(engine):
     assert s.entry is not None and s.stop is not None
 
 
-def test_strong_bearish_is_not_long(engine):
-    s = _eval(engine, scenario_strong_bear())
-    assert s.direction is not SignalType.LONG
-    assert s.entry is None                       # no trade plan for a non-LONG
+def _first_short(engine, df):
+    """Return the first SHORT signal walking the scenario causally, plus counts."""
+    shorts = longs = 0
+    first = None
+    for i in range(210, len(df)):
+        s = engine.evaluate_at(df, i, "BTCUSDT", TF)
+        if s.direction is SignalType.SHORT:
+            shorts += 1
+            first = first or s
+        elif s.direction is SignalType.LONG:
+            longs += 1
+    return first, shorts, longs
+
+
+def test_strong_bearish_is_short(engine):
+    # Symmetric engine: a strong downtrend is the mirror of a strong uptrend and
+    # must produce SHORT signals (and NEVER a LONG) with coherent bearish plans.
+    s, shorts, longs = _first_short(engine, scenario_strong_bear())
+    assert longs == 0                              # a downtrend never yields a LONG
+    assert shorts > 0                              # but it does yield SHORTs
+    assert s.direction is SignalType.SHORT
     assert s.trend_class in (TrendClass.BEARISH, TrendClass.STRONG_BEARISH)
+    assert s.short_score >= 60
+    assert s.entry is not None and s.stop is not None
+    # Critical SHORT invariants.
+    assert s.stop > s.entry
+    assert len(s.take_profits) == 2
+    tp1, tp2 = s.take_profits
+    assert tp1 < s.entry and tp2 < tp1
+    risk = s.stop - s.entry
+    assert tp1 == pytest.approx(s.entry - risk)
+    assert tp2 == pytest.approx(s.entry - 2 * risk)
 
 
 def test_neutral_ranging_market(engine):
@@ -192,12 +219,13 @@ def test_long_plan_is_coherent(engine):
     assert s.invalidation_conditions              # at least one invalidation
 
 
-def test_non_long_has_no_plan(engine):
-    for df in (scenario_strong_bear(), scenario_range()):
-        s = _eval(engine, df)
-        assert s.entry is None and s.stop is None
-        assert s.take_profits == []
-        assert s.risk_reward is None
+def test_non_directional_has_no_plan(engine):
+    # A ranging market yields NEUTRAL (no setup either side) -> no trade plan.
+    s = _eval(engine, scenario_range())
+    assert not s.direction.is_directional
+    assert s.entry is None and s.stop is None
+    assert s.take_profits == []
+    assert s.risk_reward is None
 
 
 # =========================================================================
@@ -229,11 +257,23 @@ def test_block_result_clamp():
 # =========================================================================
 
 def test_low_rsi_in_downtrend_is_not_long(engine):
-    # Strong bear: RSI is often low, but that must NOT produce a LONG.
-    s = _eval(engine, scenario_strong_bear())
-    assert s.direction is not SignalType.LONG
-    # momentum should have flagged the bearish context, not rewarded it
-    assert any("bearish" in w.lower() or "downtrend" in w.lower() for w in s.warnings)
+    # Strong bear: RSI is often low, but that must NEVER produce a LONG. It may
+    # produce a SHORT, whose reasoning is genuinely bearish (not a naive RSI buy).
+    s, shorts, longs = _first_short(engine, scenario_strong_bear())
+    assert longs == 0 and shorts > 0
+    assert s.direction is SignalType.SHORT
+    assert any("below EMA200" in r or "Bearish structure" in r for r in s.reasons)
+
+
+def test_low_rsi_long_evaluation_flags_bearish_context():
+    # The LONG-side momentum block must still refuse to reward a low RSI in a
+    # downtrend (the classic "RSI<30 = BUY" trap).
+    from signals import compute_snapshot
+    from signals.scoring import EngineConfig, evaluate_momentum, evaluate_trend
+    snap = compute_snapshot(scenario_strong_bear(), EngineConfig())
+    _, tc = evaluate_trend(snap, EngineConfig())
+    mom = evaluate_momentum(snap, tc, EngineConfig())
+    assert any("bearish" in w.lower() or "downtrend" in w.lower() for w in mom.warnings)
 
 
 # =========================================================================
