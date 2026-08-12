@@ -48,17 +48,20 @@ git check-ignore .env            # prints ".env" => ignored
 ## 3. Run the readiness check (places NO orders)
 
 ```bash
-python app.py --testnet-check
+python cli.py --testnet-check     # headless; or: python app.py --testnet-check
 ```
 
 It verifies configuration, credential availability, the testnet endpoint,
 connectivity, `exchangeInfo`/account permissions, symbol filters and time
-synchronization — **without sending any order**. It prints PASS/FAIL per item.
+synchronization — **without sending any order**. It prints a `TESTNET READINESS
+CHECK` report ending in `RESULT: TESTNET READY` or `RESULT: TESTNET NOT READY —
+<reason>`. These checks are fully headless (they never import or start
+Streamlit).
 
 Confirm live trading is disabled:
 
 ```bash
-python app.py --live-check       # always prints "LIVE TRADING DISABLED"
+python cli.py --live-check        # always prints "LIVE TRADING DISABLED"
 ```
 
 ## 4. Verify the engine on real market data first (no orders)

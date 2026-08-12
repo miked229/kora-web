@@ -14,123 +14,34 @@ from __future__ import annotations
 
 import sys
 
-from binance.client import BinanceRESTClient
-from binance.exchange_info import ExchangeInfoService
-from binance.market_data import MarketDataService
 from config import get_settings
 from core.enums import Timeframe, TradingMode
-from core.exceptions import ScannerError
-from core.logger import configure_logging, get_logger
-
-
-def build_services(settings) -> tuple[BinanceRESTClient, MarketDataService, ExchangeInfoService]:
-    client = BinanceRESTClient(
-        settings.rest_base,
-        timeout=settings.http_timeout,
-        max_retries=settings.request_max_retries,
-    )
-    return client, MarketDataService(client), ExchangeInfoService(client)
+from core.logger import configure_logging
 
 
 # --------------------------------------------------------------------------
-# Headless self-check (Phase 1 verification)
+# Headless CLI checks — thin wrappers over Streamlit-free modules.
+#
+# The actual logic lives in binance/connectivity.py and binance/readiness.py,
+# neither of which imports Streamlit. These wrappers exist for convenience; the
+# canonical headless entry point is cli.py. NONE of these touch Streamlit.
 # --------------------------------------------------------------------------
 
 def run_check() -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level)
-    log = get_logger("app.check")
-    log.info("connectivity self-check against %s", settings.rest_base)
+    from binance.connectivity import connectivity_check
+    return connectivity_check()
 
-    client, market, _ = build_services(settings)
-    try:
-        client.ping()
-        server_ms = client.server_time()
-        log.info("ping OK; server time=%d", server_ms)
-        for symbol in ("BTCUSDT", "ETHUSDT"):
-            ticker = market.get_ticker(symbol)
-            book = market.get_book_ticker(symbol)
-            print(
-                f"{symbol:9s} last={ticker.last_price:<12} "
-                f"24h={ticker.price_change_pct:+.2f}%  "
-                f"bid={book.bid_price} ask={book.ask_price} "
-                f"spread={book.spread_pct:.4f}%  "
-                f"quoteVol24h={ticker.quote_volume:,.0f}"
-            )
-        print("\nConnectivity OK — public market data reachable.")
-        return 0
-    except ScannerError as exc:
-        print(f"\nConnectivity FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
-        print(
-            "If this environment blocks api.binance.com, set "
-            "BINANCE_REST_BASE=https://data-api.binance.vision in your .env "
-            "or run from a network with Binance access.",
-            file=sys.stderr,
-        )
-        return 1
-    finally:
-        client.close()
-
-
-# --------------------------------------------------------------------------
-# Testnet readiness check (never places orders) and live guard check
-# --------------------------------------------------------------------------
 
 def run_testnet_check() -> int:
-    """Verify Testnet readiness WITHOUT placing any order (spec 15)."""
-    from binance.testnet_client import TESTNET_BASE, BinanceTestnetClient
-    from config import Settings
-    from trading.safety import DEFAULT_WHITELIST
-
-    settings = get_settings()
-    configure_logging(settings.log_level)
-    print("=== Binance Spot Testnet readiness check (NO ORDERS PLACED) ===")
-    ok = True
-
-    def line(name, passed, note=""):
-        nonlocal ok
-        ok = ok and passed
-        print(f"  [{'PASS' if passed else 'FAIL'}] {name}{(' — ' + note) if note else ''}")
-
-    line("configuration: BINANCE_ENV", settings.binance_env in ("mainnet", "testnet"),
-         settings.binance_env)
-    key, secret = Settings.get_api_credentials()
-    has_creds = bool(key and secret)
-    line("credentials available (env only)", has_creds,
-         "present" if has_creds else "set BINANCE_API_KEY/SECRET (testnet) in .env")
-    line("endpoint is testnet", True, TESTNET_BASE)
-    line("symbol whitelist configured", len(DEFAULT_WHITELIST) > 0, ", ".join(sorted(DEFAULT_WHITELIST)))
-
-    if not has_creds:
-        print("\nProvide testnet credentials to check connectivity / account / filters.")
-        print("Testnet-check finished (credentials missing).")
-        return 0 if ok else 1
-
-    try:
-        tc = BinanceTestnetClient(key, secret, base_url=TESTNET_BASE)
-        line("connectivity: ping", tc.ping())
-        drift = abs(int(__import__("time").time() * 1000) - tc.server_time())
-        line("time synchronization", drift < 5000, f"drift={drift}ms")
-        acct = tc.account()
-        line("account permissions: canTrade", bool(acct.get("canTrade")))
-        line("account permissions: no withdrawal expected", True,
-             "trading key must NOT have withdrawal permission")
-        tc.close()
-    except Exception as exc:
-        line("testnet connectivity", False, f"{type(exc).__name__}: {exc}")
-    print("\nNO orders were placed. Testnet-check complete.")
-    return 0 if ok else 1
+    """Verify Testnet readiness WITHOUT placing any order (headless)."""
+    from binance.readiness import testnet_check
+    return testnet_check()
 
 
 def run_live_check() -> int:
-    """Always reports that live trading is disabled (no mainnet client exists)."""
-    from trading.kill_switch import enable_live_trading
-    print("=== Live trading check ===")
-    print("  LIVE TRADING DISABLED")
-    print(f"  enable_live_trading(manual=True) -> {enable_live_trading(True)}")
-    print("  Reason: no mainnet order client exists in this build; real orders "
-          "cannot be placed regardless of configuration.")
-    return 0
+    """Always reports that live trading is disabled (headless)."""
+    from binance.readiness import live_check
+    return live_check()
 
 
 # --------------------------------------------------------------------------
@@ -262,13 +173,17 @@ def _safe_index(options, value) -> int:
         return 0
 
 
+# CLI flags handled headlessly (never start Streamlit when any is supplied).
+_CLI_FLAGS = frozenset({"--check", "--testnet-check", "--live-check"})
+
+
 def main() -> None:
-    if "--check" in sys.argv:
-        raise SystemExit(run_check())
-    if "--testnet-check" in sys.argv:
-        raise SystemExit(run_testnet_check())
-    if "--live-check" in sys.argv:
-        raise SystemExit(run_live_check())
+    # Handle CLI flags FIRST, before importing/initialising Streamlit, by
+    # delegating to the Streamlit-free cli module. This guarantees a fully
+    # headless run with no ScriptRunContext warnings.
+    if _CLI_FLAGS.intersection(sys.argv[1:]):
+        import cli
+        raise SystemExit(cli.main(sys.argv[1:]))
     run_dashboard()
 
 

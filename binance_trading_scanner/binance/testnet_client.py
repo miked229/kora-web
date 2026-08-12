@@ -113,6 +113,10 @@ class BinanceTestnetClient:
     def server_time(self) -> int:
         return int(self._public("/api/v3/time")["serverTime"])
 
+    def exchange_info(self, symbol: Optional[str] = None) -> dict:
+        """Public exchangeInfo (no signing) — for readiness checks / filters."""
+        return self._public("/api/v3/exchangeInfo", {"symbol": symbol} if symbol else None)
+
     def account(self) -> dict:
         return self._signed("GET", "/api/v3/account")
 

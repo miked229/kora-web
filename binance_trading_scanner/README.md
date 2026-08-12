@@ -88,9 +88,11 @@ cp .env.example .env        # edit as needed
 
 ```bash
 streamlit run app.py            # dashboard
-python app.py --check           # public market-data connectivity self-check
-python app.py --testnet-check   # Testnet readiness (NO orders placed)
-python app.py --live-check      # always prints "LIVE TRADING DISABLED"
+# Headless checks (never start Streamlit; cli.py imports no Streamlit at all):
+python cli.py --check           # public market-data connectivity self-check
+python cli.py --testnet-check   # Testnet readiness (NO orders placed)
+python cli.py --live-check      # always prints "LIVE TRADING DISABLED"
+python app.py --testnet-check   # same flags also work via app.py (delegates to cli)
 pytest                          # full offline test suite
 ```
 

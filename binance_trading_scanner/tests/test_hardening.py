@@ -300,7 +300,7 @@ def test_testnet_check_runs_without_orders(capsys, monkeypatch):
     import app
     rc = app.run_testnet_check()
     out = capsys.readouterr().out
-    assert "NO ORDERS PLACED" in out
+    assert "TESTNET READINESS CHECK" in out and "No orders were placed" in out
     assert rc in (0, 1)
 
 
