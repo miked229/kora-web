@@ -31,8 +31,61 @@ def mk_pos(entry=100.0, stop=95.0, tp1=105.0, tp2=110.0, qty=10.0,
     return p
 
 
+def mk_short(entry=100.0, stop=105.0, tp1=95.0, tp2=90.0, qty=10.0,
+             tp1_alloc=0.5, tp1_done=False) -> Position:
+    """A SHORT position: stop ABOVE entry, TPs BELOW entry."""
+    p = Position(
+        symbol="X", timeframe="1h", signal_time=0, entry_time=0,
+        entry_raw=entry, entry_eff=entry, stop=stop, tp1=tp1, tp2=tp2,
+        original_qty=qty, remaining_qty=qty if not tp1_done else qty * (1 - tp1_alloc),
+        tp1_alloc=tp1_alloc, tp2_alloc=1 - tp1_alloc, tp1_done=tp1_done,
+        direction="SHORT",
+    )
+    return p
+
+
 def cfg(policy=AmbiguityPolicy.CONSERVATIVE, fee=0.001, slip=0.0005):
     return ExecutionConfig(ambiguity=policy, fee_rate=fee, slippage_rate=slip)
+
+
+# ---- SHORT exit resolution (mirror of the long cases) --------------------
+
+def test_short_tp1_touch_on_low():
+    ev = resolve_candle(mk_short(), open_=100, high=101, low=94, close=96, cfg=cfg())
+    assert [e.reason for e in ev] == [ExitReason.TP1]
+
+
+def test_short_tp1_then_tp2_same_candle():
+    ev = resolve_candle(mk_short(), open_=100, high=101, low=89, close=91, cfg=cfg())
+    assert [e.reason for e in ev] == [ExitReason.TP1, ExitReason.TP2]
+
+
+def test_short_stop_out_on_high():
+    ev = resolve_candle(mk_short(), open_=100, high=106, low=99, close=104, cfg=cfg())
+    assert [e.reason for e in ev] == [ExitReason.STOP_LOSS]
+
+
+def test_short_gap_up_fills_stop_at_open():
+    # Candle gaps up THROUGH the stop: fill at the (worse) open, never at the stop.
+    ev = resolve_candle(mk_short(), open_=108, high=110, low=107, close=109, cfg=cfg())
+    assert ev[0].reason is ExitReason.STOP_LOSS
+    assert ev[0].price == pytest.approx(108)   # max(stop, open) = open
+
+
+def test_short_ambiguous_conservative_takes_stop():
+    # Both stop (high) and TP (low) hit -> conservative assumes the stop first.
+    ev = resolve_candle(mk_short(), open_=100, high=106, low=94, close=100,
+                        cfg=cfg(AmbiguityPolicy.CONSERVATIVE))
+    assert [e.reason for e in ev] == [ExitReason.STOP_LOSS]
+
+
+def test_short_leg_pnl_profits_when_price_falls():
+    pos = mk_short(entry=100, stop=105)
+    from backtesting.execution import ExitEvent
+    ev = ExitEvent(1.0, 95.0, ExitReason.TP2)      # cover at 95, below entry
+    qty, exit_eff, gross, fee, slip, net = leg_pnl(pos, ev, cfg(fee=0.0, slip=0.0))
+    assert gross == pytest.approx(pos.original_qty * (100 - 95))   # profit
+    assert net == pytest.approx(gross)
 
 
 # ---- price adjustments ---------------------------------------------------

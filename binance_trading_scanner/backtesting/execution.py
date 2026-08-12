@@ -17,7 +17,7 @@ Design choices are deliberately conservative (spec sections 3, 4, 7, 34):
     - OPTIMISTIC: assume the TP(s) filled first.
     - SKIP: ignore the intrabar extremes on that candle and settle at its CLOSE.
 
-Longs only (Spot). All functions here are pure and deterministic.
+Direction-aware (LONG/SHORT). All functions here are pure and deterministic.
 """
 from __future__ import annotations
 
@@ -90,22 +90,29 @@ class ExitEvent:
 def resolve_candle(
     pos: Position, open_: float, high: float, low: float, close: float, cfg: ExecutionConfig
 ) -> List[ExitEvent]:
-    """Return the exit events triggered by one candle (longs only).
+    """Return the exit events triggered by one candle (direction-aware).
 
     Handles partial TP1 -> TP2, stop-outs, and the same-candle SL/TP ambiguity
     according to ``cfg.ambiguity``. Returns an empty list when nothing triggers.
 
-    Gap realism (spec 4): if a candle gaps down THROUGH the stop (open below the
-    stop), the stop fills at the open, never at the unreachable stop level — we
-    never assume an impossible favourable fill.
+    Gap realism (spec 4): if a candle gaps THROUGH the stop (a LONG gap-down
+    below the stop, or a SHORT gap-up above the stop), the stop fills at the open,
+    never at the unreachable stop level — we never assume an impossible fill.
     """
     stop, tp1, tp2 = pos.stop, pos.tp1, pos.tp2
     remaining = pos.remaining_fraction
-    stop_fill = min(stop, open_)    # gap-down through the stop fills at the open
 
-    sl_touch = low <= stop
-    tp1_touch = (not pos.tp1_done) and tp1 is not None and high >= tp1
-    tp2_touch = tp2 is not None and high >= tp2
+    if pos.is_short:
+        # SHORT: stop is ABOVE entry (hit by highs), TPs BELOW entry (hit by lows).
+        stop_fill = max(stop, open_)   # gap-up through the stop fills at the open
+        sl_touch = high >= stop
+        tp1_touch = (not pos.tp1_done) and tp1 is not None and low <= tp1
+        tp2_touch = tp2 is not None and low <= tp2
+    else:
+        stop_fill = min(stop, open_)   # gap-down through the stop fills at the open
+        sl_touch = low <= stop
+        tp1_touch = (not pos.tp1_done) and tp1 is not None and high >= tp1
+        tp2_touch = tp2 is not None and high >= tp2
 
     if not (sl_touch or tp1_touch or tp2_touch):
         return []
@@ -142,16 +149,24 @@ def resolve_candle(
 
 def _settle_at_close(pos: Position, close: float) -> ExitEvent:
     """SKIP policy: ignore intrabar extremes, settle the remainder at the close."""
-    if close <= pos.stop:
-        reason = ExitReason.STOP_LOSS
-    elif (not pos.tp1_done) and pos.tp2 is not None and close >= pos.tp2:
-        reason = ExitReason.TP2
-    elif pos.tp1_done and pos.tp2 is not None and close >= pos.tp2:
-        reason = ExitReason.TP2
-    elif (not pos.tp1_done) and pos.tp1 is not None and close >= pos.tp1:
-        reason = ExitReason.TP1
+    if pos.is_short:
+        if close >= pos.stop:
+            reason = ExitReason.STOP_LOSS
+        elif pos.tp2 is not None and close <= pos.tp2:
+            reason = ExitReason.TP2
+        elif (not pos.tp1_done) and pos.tp1 is not None and close <= pos.tp1:
+            reason = ExitReason.TP1
+        else:
+            reason = ExitReason.INVALIDATION
     else:
-        reason = ExitReason.INVALIDATION   # indeterminate intrabar -> close-based
+        if close <= pos.stop:
+            reason = ExitReason.STOP_LOSS
+        elif pos.tp2 is not None and close >= pos.tp2:
+            reason = ExitReason.TP2
+        elif (not pos.tp1_done) and pos.tp1 is not None and close >= pos.tp1:
+            reason = ExitReason.TP1
+        else:
+            reason = ExitReason.INVALIDATION   # indeterminate intrabar -> close-based
     return ExitEvent(pos.remaining_fraction, close, reason)
 
 
@@ -160,13 +175,19 @@ def leg_pnl(
 ) -> Tuple[float, float, float, float, float, float]:
     """Compute (qty, exit_eff, gross, exit_fee, exit_slip, leg_net) for one exit.
 
-    Only exit-side costs are attributed here; the one-off entry fee/slippage are
-    subtracted once at the trade level, so summing legs never double-counts them.
-    Slippage is surfaced separately and never hidden inside PnL.
+    Direction-aware: a LONG exit SELLS (slippage down, profit when price rises); a
+    SHORT exit BUYS to cover (slippage up, profit when price falls). Only exit-side
+    costs are attributed here; the one-off entry fee/slippage are subtracted once at
+    the trade level, so summing legs never double-counts them. Slippage is surfaced
+    separately and never hidden inside PnL.
     """
     qty = pos.original_qty * event.fraction
-    exit_eff = sell_fill_price(event.price, cfg)
-    gross = qty * (event.price - pos.entry_raw)     # raw price move, no costs
+    if pos.is_short:
+        exit_eff = buy_fill_price(event.price, cfg)     # cover = buy back, pays more
+        gross = qty * (pos.entry_raw - event.price)     # short profits as price falls
+    else:
+        exit_eff = sell_fill_price(event.price, cfg)
+        gross = qty * (event.price - pos.entry_raw)     # raw price move, no costs
     exit_fee = fee_on(qty * exit_eff, cfg)
     exit_slip = qty * event.price * cfg.slippage_rate
     leg_net = gross - exit_fee - exit_slip          # exit-only net (entry costs added later)

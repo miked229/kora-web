@@ -76,6 +76,21 @@ def bt_bull(n=300, base=100.0, slope=0.55, amp=3.0, period=20, **kw):
     return _bt_ohlc(base + slope * i + amp * np.sin(2 * np.pi * i / period), **kw)
 
 
+def bt_bear(n=300, base=250.0, slope=0.55, amp=3.0, period=20, **kw):
+    """Downtrend with swings -> reliably produces SHORT signals (mirror of bt_bull)."""
+    i = np.arange(n, dtype="float64")
+    return _bt_ohlc(base - slope * i + amp * np.sin(2 * np.pi * i / period), **kw)
+
+
+def bt_bear_then_pump(n_bear=250, n_pump=25, base=250.0, rise=0.04, **kw):
+    """Bear warmup that produces a SHORT, then a sharp rally through any stop."""
+    i = np.arange(n_bear, dtype="float64")
+    bear = base - 0.55 * i + 3.0 * np.sin(2 * np.pi * i / 20)
+    bottom = float(bear[-1])
+    pump = bottom * (1.0 + rise) ** np.arange(1, n_pump + 1)
+    return _bt_ohlc(np.concatenate([bear, pump]), **kw)
+
+
 def bt_bull_then_crash(n_bull=250, n_crash=25, base=100.0, drop=0.04, **kw):
     """Bull warmup that produces a LONG, then a sharp decline through any stop."""
     i = np.arange(n_bull, dtype="float64")

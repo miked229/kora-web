@@ -46,14 +46,17 @@ def position_size(
     entry: float,
     stop: float,
     *,
+    side: str = "LONG",
     filters: Optional[SymbolFilters] = None,
     max_exposure_value: Optional[float] = None,
     available_cash: Optional[float] = None,
 ) -> SizingResult:
-    """Risk-based position size for a LONG, with validation and caps.
+    """Risk-based position size, with validation and caps (direction-aware).
 
-    ``risk_pct`` is a fraction (0.01 == 1%). Never returns a negative size and
-    never divides by zero.
+    ``risk_pct`` is a fraction (0.01 == 1%). ``side`` is "LONG" or "SHORT": the
+    risk-per-unit is ``abs(entry - stop)`` with the stop required on the correct
+    side (below entry for LONG, above entry for SHORT). Never returns a negative
+    size and never divides by zero.
     """
     if capital is None or capital <= 0 or not math.isfinite(capital):
         return SizingResult(False, reason="invalid capital (must be > 0)")
@@ -64,10 +67,12 @@ def position_size(
     if stop is None or stop <= 0 or not math.isfinite(stop):
         return SizingResult(False, reason="invalid stop price")
 
-    risk_per_unit = entry - stop
+    is_short = str(side).upper() == "SHORT"
+    risk_per_unit = (stop - entry) if is_short else (entry - stop)
     if risk_per_unit <= 0:
+        side_word = "above" if is_short else "below"
         return SizingResult(False, risk_per_unit=risk_per_unit,
-                            reason="zero/negative stop distance (stop not below entry)")
+                            reason=f"zero/negative stop distance (stop not {side_word} entry)")
 
     risk_amount = capital * risk_pct
     qty = risk_amount / risk_per_unit
@@ -149,10 +154,20 @@ class Portfolio:
     # -- valuation ----------------------------------------------------------
 
     def exposure(self, price: float) -> float:
+        """Gross market exposure magnitude (used by the risk gate)."""
         return sum(p.remaining_qty * price for p in self.positions)
 
+    def market_value(self, price: float) -> float:
+        """Signed mark-to-market value of open positions.
+
+        A LONG holds an asset worth ``+qty*price``; a SHORT owes ``-qty*price`` to
+        buy back what was sold. For an all-LONG book this equals ``exposure`` so
+        long-only equity is byte-identical.
+        """
+        return sum(p.sign * p.remaining_qty * price for p in self.positions)
+
     def equity(self, price: float) -> float:
-        return self.cash + self.exposure(price)
+        return self.cash + self.market_value(price)
 
     # -- risk gate ----------------------------------------------------------
 
@@ -172,14 +187,23 @@ class Portfolio:
     # -- lifecycle ----------------------------------------------------------
 
     def open_position(self, pos: Position) -> None:
-        self.cash -= pos.original_qty * pos.entry_eff + pos.entry_fee
+        # LONG buys the asset (cash out); SHORT sells borrowed asset (cash in).
+        # The entry fee is always paid.
+        if pos.is_short:
+            self.cash += pos.original_qty * pos.entry_eff - pos.entry_fee
+        else:
+            self.cash -= pos.original_qty * pos.entry_eff + pos.entry_fee
         self.fees_total += pos.entry_fee
         self.slippage_total += pos.entry_slippage
         self.positions.append(pos)
 
     def apply_exit_leg(self, pos: Position, qty: float, exit_eff: float,
                        exit_fee: float, exit_slip: float, leg_net: float, day_key: str) -> None:
-        self.cash += qty * exit_eff - exit_fee
+        # LONG sells to close (cash in); SHORT buys to cover (cash out).
+        if pos.is_short:
+            self.cash -= qty * exit_eff + exit_fee
+        else:
+            self.cash += qty * exit_eff - exit_fee
         self.fees_total += exit_fee
         self.slippage_total += exit_slip
         pos.remaining_qty -= qty

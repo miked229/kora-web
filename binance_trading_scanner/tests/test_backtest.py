@@ -18,7 +18,13 @@ from backtesting import (
 )
 from core.enums import ExitReason, SignalType, Timeframe
 from core.models import SymbolFilters
-from tests.conftest import bt_bull, bt_bull_then_crash, bt_flat_range
+from tests.conftest import (
+    bt_bear,
+    bt_bear_then_pump,
+    bt_bull,
+    bt_bull_then_crash,
+    bt_flat_range,
+)
 
 TF = Timeframe.H1
 
@@ -57,6 +63,21 @@ def test_position_size_zero_stop_distance():
 
 def test_position_size_stop_above_entry_invalid():
     assert not position_size(10_000, 0.01, entry=100, stop=110).ok
+
+
+def test_position_size_short_basic():
+    # SHORT: stop ABOVE entry, risk-per-unit = stop - entry.
+    r = position_size(10_000, 0.01, entry=100, stop=105, side="SHORT")
+    assert r.ok
+    assert r.risk_per_unit == pytest.approx(5.0)
+    assert r.qty == pytest.approx(20.0)
+    assert r.notional == pytest.approx(2000.0)
+
+
+def test_position_size_short_stop_below_entry_invalid():
+    # For a SHORT, a stop BELOW entry is a zero/negative risk distance.
+    r = position_size(10_000, 0.01, entry=100, stop=95, side="SHORT")
+    assert not r.ok and "stop distance" in r.reason
 
 
 def test_position_size_exposure_and_cash_caps():
@@ -120,6 +141,43 @@ def test_bull_generates_long_trades(engine):
     assert len(r.trades) > 0
     assert all(t.direction == "LONG" for t in r.trades)
     assert len(r.equity_curve) >= 300
+
+
+def test_bear_generates_short_trades(engine):
+    r = engine.run(bt_bear(320), "BTCUSDT", TF)
+    assert len(r.trades) > 0
+    assert all(t.direction == "SHORT" for t in r.trades)
+    # Critical SHORT invariants on every simulated trade.
+    for t in r.trades:
+        assert t.stop_price > t.entry_price
+        if t.tp1_price is not None:
+            assert t.tp1_price < t.entry_price
+        if t.tp2_price is not None:
+            assert t.tp2_price < t.tp1_price
+
+
+def test_short_equity_accounting_is_consistent(engine):
+    # Final equity moves by exactly the sum of realised net PnL (no leakage).
+    r = engine.run(bt_bear(320), "BTCUSDT", TF)
+    net = sum(t.net_pnl for t in r.trades)
+    assert (r.final_equity - r.initial_capital) == pytest.approx(net, abs=1e-6)
+
+
+def test_short_stop_out_scenario_has_losers(engine):
+    # A bear leg that pumps hard must stop the short out at a loss.
+    r = engine.run(bt_bear_then_pump(250, 30), "BTCUSDT", TF)
+    stops = [t for t in r.trades if t.exit_reason is ExitReason.STOP_LOSS]
+    assert stops, "expected at least one short stop-loss exit"
+    assert all(t.direction == "SHORT" for t in stops)
+    assert all(t.net_pnl < 0 for t in stops)
+
+
+def test_short_zero_costs_net_equals_gross():
+    eng = BacktestEngine(config=BacktestConfig(execution=ExecutionConfig(fee_rate=0.0, slippage_rate=0.0)))
+    r = eng.run(bt_bear(320), "BTCUSDT", TF)
+    assert r.trades and all(t.direction == "SHORT" for t in r.trades)
+    for t in r.trades:
+        assert t.net_pnl == pytest.approx(t.gross_pnl)
 
 
 def test_entry_is_next_candle_open(engine):

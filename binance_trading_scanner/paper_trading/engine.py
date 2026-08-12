@@ -57,6 +57,7 @@ def _pos_to_json(pos: Optional[Position]) -> Optional[str]:
         "stop": pos.stop, "tp1": pos.tp1, "tp2": pos.tp2,
         "original_qty": pos.original_qty, "remaining_qty": pos.remaining_qty,
         "tp1_alloc": pos.tp1_alloc, "tp2_alloc": pos.tp2_alloc,
+        "direction": pos.direction,
         "entry_fee": pos.entry_fee, "entry_slippage": pos.entry_slippage,
         "fees_paid": pos.fees_paid, "slippage_paid": pos.slippage_paid,
         "realized_pnl": pos.realized_pnl, "tp1_done": pos.tp1_done,
@@ -82,6 +83,7 @@ def _pos_from_json(text: Optional[str]) -> Optional[Position]:
         stop=d["stop"], tp1=d["tp1"], tp2=d["tp2"],
         original_qty=d["original_qty"], remaining_qty=d["remaining_qty"],
         tp1_alloc=d["tp1_alloc"], tp2_alloc=d["tp2_alloc"],
+        direction=d.get("direction", "LONG"),
         entry_fee=d["entry_fee"], entry_slippage=d["entry_slippage"],
         fees_paid=d["fees_paid"], slippage_paid=d["slippage_paid"],
         realized_pnl=d["realized_pnl"], tp1_done=d["tp1_done"],
@@ -363,10 +365,24 @@ class PaperEngine:
             blocked_by=list(sig.blocked_by))
 
     def _record_step(self, res: StepResult, ts: int) -> None:
+        # Direction of the position this step concerns (for correct order sides):
+        # a SHORT opens with a SELL and covers with a BUY (the mirror of a LONG).
+        step_dir = "LONG"
+        if res.opened is not None:
+            step_dir = res.opened.direction
+        elif self.sim.position is not None:
+            step_dir = self.sim.position.direction
+        elif res.closed_trades:
+            step_dir = res.closed_trades[0].direction
+        entry_side = OrderSide.SELL if step_dir == "SHORT" else OrderSide.BUY
+        exit_side = OrderSide.BUY if step_dir == "SHORT" else OrderSide.SELL
+
         # a pending entry scheduled for the NEXT candle -> PENDING order
         if res.scheduled_signal_time is not None:
+            sched_dir = (self.sim.pending.get("direction", "LONG") if self.sim.pending else "LONG")
+            sched_side = OrderSide.SELL if sched_dir == "SHORT" else OrderSide.BUY
             oid = self.store.insert_order(Order(
-                id=None, symbol=self.symbol, side=OrderSide.BUY, type=OrderType.MARKET,
+                id=None, symbol=self.symbol, side=sched_side, type=OrderType.MARKET,
                 quantity=0.0, requested_price=self.sim.pending["stop"] if self.sim.pending else None,
                 filled_price=None, status=OrderStatus.PENDING, created_at=res.scheduled_signal_time,
                 filled_at=None, reason="entry", signal_time=res.scheduled_signal_time))
@@ -383,7 +399,7 @@ class PaperEngine:
                                         fees=pos.entry_fee, slippage=pos.entry_slippage)
             else:
                 oid = self.store.insert_order(Order(
-                    id=None, symbol=self.symbol, side=OrderSide.BUY, type=OrderType.MARKET,
+                    id=None, symbol=self.symbol, side=entry_side, type=OrderType.MARKET,
                     quantity=pos.original_qty, requested_price=pos.entry_raw,
                     filled_price=pos.entry_eff, status=OrderStatus.FILLED,
                     created_at=pos.signal_time, filled_at=pos.entry_time,
@@ -393,8 +409,8 @@ class PaperEngine:
                                    pos.entry_fee, pos.entry_slippage, pos.entry_time, "entry")
             self.store.insert_journal(pos.entry_time, self.symbol, self.timeframe.value,
                                       JournalEventType.POSITION_OPEN.value,
-                                      detail=f"qty={pos.original_qty:.6f} entry={pos.entry_eff:.6f} "
-                                             f"stop={pos.stop:.6f}")
+                                      detail=f"{pos.direction} qty={pos.original_qty:.6f} "
+                                             f"entry={pos.entry_eff:.6f} stop={pos.stop:.6f}")
             self._pending_order_signal_time = None
 
         # entry blocked (risk / sizing)
@@ -408,10 +424,10 @@ class PaperEngine:
                                       JournalEventType.RISK_BLOCKED.value, detail=res.entry_blocked_reason)
             self._pending_order_signal_time = None
 
-        # exit legs -> SELL fills
+        # exit legs -> closing fills (SELL for a long, BUY to cover a short)
         for leg in res.exit_legs:
             oid = self.store.insert_order(Order(
-                id=None, symbol=self.symbol, side=OrderSide.SELL, type=OrderType.MARKET,
+                id=None, symbol=self.symbol, side=exit_side, type=OrderType.MARKET,
                 quantity=leg.qty, requested_price=None, filled_price=leg.price,
                 status=OrderStatus.FILLED, created_at=leg.timestamp, filled_at=leg.timestamp,
                 fees=leg.fees, slippage=leg.slippage, reason=leg.reason.value))

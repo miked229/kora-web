@@ -17,7 +17,7 @@ from typing import List, Optional
 from core.enums import ExitReason, SignalType, StructureClass
 from core.models import Signal
 
-from .execution import ExitEvent, buy_fill_price, fee_on, leg_pnl, resolve_candle
+from .execution import ExitEvent, buy_fill_price, fee_on, leg_pnl, resolve_candle, sell_fill_price
 from .portfolio import EquityPoint, Portfolio, day_key_of, position_size
 from .trade import Leg, Position, Trade
 
@@ -35,7 +35,7 @@ class StepResult:
 
 
 class Simulator:
-    """Stateful per-candle simulator over a Portfolio. Longs only (Spot)."""
+    """Stateful per-candle simulator over a Portfolio. Direction-aware (LONG/SHORT)."""
 
     def __init__(self, cfg, portfolio: Portfolio, symbol: str, timeframe_value: str) -> None:
         self.cfg = cfg
@@ -77,24 +77,28 @@ class Simulator:
                 res.closed_trades.append(self._build_trade(bar_index))
                 self.position = None
 
-        # 3. Structure invalidation exit (uses the engine's own output).
+        # 3. Structure invalidation exit (uses the engine's own output). A LONG is
+        #    invalidated by a bearish structure; a SHORT by a bullish one.
         if (self.position is not None and self.position.is_open
-                and self.cfg.exit_on_structure_break
-                and sig.structure_class is StructureClass.BEARISH_STRUCTURE):
-            ev = ExitEvent(self.position.remaining_fraction, c, ExitReason.INVALIDATION)
-            res.exit_legs.append(self._apply_exit(ev, close_time, day))
-            if not self.position.is_open:
-                res.closed_trades.append(self._build_trade(bar_index))
-                self.position = None
+                and self.cfg.exit_on_structure_break):
+            adverse = (StructureClass.BULLISH_STRUCTURE if self.position.is_short
+                       else StructureClass.BEARISH_STRUCTURE)
+            if sig.structure_class is adverse:
+                ev = ExitEvent(self.position.remaining_fraction, c, ExitReason.INVALIDATION)
+                res.exit_legs.append(self._apply_exit(ev, close_time, day))
+                if not self.position.is_open:
+                    res.closed_trades.append(self._build_trade(bar_index))
+                    self.position = None
 
-        # 4. Schedule an entry for the NEXT candle if flat and LONG.
+        # 4. Schedule an entry for the NEXT candle if flat and directional.
         if (self.position is None and self.pending is None
-                and sig.direction is SignalType.LONG
+                and sig.direction.is_directional
                 and sig.entry and sig.stop and len(sig.take_profits) >= 1):
             tps = sig.take_profits
             self.pending = {
                 "signal_time": int(close_time), "stop": float(sig.stop),
                 "tp1": float(tps[0]), "tp2": float(tps[1] if len(tps) > 1 else tps[0]),
+                "direction": sig.direction.value,
             }
             res.scheduled_signal_time = int(close_time)
 
@@ -117,12 +121,15 @@ class Simulator:
 
     def _open(self, open_price: float, entry_time: int, bar_index: int, day: str) -> Optional[Position]:
         cfg, exec_cfg, portfolio = self.cfg, self.exec, self.portfolio
+        direction = self.pending.get("direction", "LONG")
+        is_short = direction == "SHORT"
         entry_raw = float(open_price)
-        entry_eff = buy_fill_price(entry_raw, exec_cfg)
+        # LONG entry BUYS (slippage up); SHORT entry SELLS (slippage down).
+        entry_eff = sell_fill_price(entry_raw, exec_cfg) if is_short else buy_fill_price(entry_raw, exec_cfg)
         equity = portfolio.equity(entry_raw)
         sizing = position_size(
             capital=equity, risk_pct=cfg.risk_per_trade, entry=entry_eff, stop=self.pending["stop"],
-            filters=cfg.filters,
+            side=direction, filters=cfg.filters,
             max_exposure_value=cfg.limits.max_total_exposure * equity,
             available_cash=portfolio.cash,
         )
@@ -143,6 +150,7 @@ class Simulator:
             stop=self.pending["stop"], tp1=self.pending["tp1"], tp2=self.pending["tp2"],
             original_qty=sizing.qty, remaining_qty=sizing.qty,
             tp1_alloc=exec_cfg.tp1_alloc, tp2_alloc=exec_cfg.tp2_alloc,
+            direction=direction,
             entry_fee=entry_fee, entry_slippage=entry_slip,
             fees_paid=entry_fee, slippage_paid=entry_slip,
         )
@@ -179,7 +187,7 @@ class Simulator:
         return_pct = (net_total / notional * 100.0) if notional > 0 else 0.0
         entry_idx = getattr(pos, "entry_bar_index", exit_bar_index)
         trade = Trade(
-            id=self.trade_id, symbol=pos.symbol, timeframe=pos.timeframe, direction="LONG",
+            id=self.trade_id, symbol=pos.symbol, timeframe=pos.timeframe, direction=pos.direction,
             signal_timestamp=pos.signal_time, entry_timestamp=pos.entry_time,
             entry_price=pos.entry_eff, stop_price=pos.stop,
             tp1_price=pos.tp1, tp2_price=pos.tp2,

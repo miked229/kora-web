@@ -33,7 +33,11 @@ class Leg:
 
 @dataclass
 class Position:
-    """Open-trade state. Longs only (Spot)."""
+    """Open-trade state. Direction-aware (LONG or SHORT).
+
+    A SHORT is only *simulated* here (backtest / paper). Whether it can actually
+    be executed is decided by the execution backend — Spot never places one.
+    """
 
     symbol: str
     timeframe: str
@@ -48,6 +52,7 @@ class Position:
     remaining_qty: float
     tp1_alloc: float
     tp2_alloc: float
+    direction: str = "LONG"    # "LONG" | "SHORT"
     entry_fee: float = 0.0
     entry_slippage: float = 0.0
     fees_paid: float = 0.0         # includes entry_fee
@@ -59,8 +64,18 @@ class Position:
     legs: List[Leg] = field(default_factory=list)
 
     @property
+    def is_short(self) -> bool:
+        return self.direction == "SHORT"
+
+    @property
+    def sign(self) -> int:
+        """+1 for LONG, -1 for SHORT (favourable price direction)."""
+        return -1 if self.is_short else 1
+
+    @property
     def risk_per_unit(self) -> float:
-        return self.entry_eff - self.stop
+        # LONG risks a drop to the stop below entry; SHORT a rise above entry.
+        return (self.stop - self.entry_eff) if self.is_short else (self.entry_eff - self.stop)
 
     @property
     def initial_risk(self) -> float:
@@ -75,12 +90,17 @@ class Position:
         return self.remaining_qty > 1e-12
 
     def update_excursion(self, high: float, low: float) -> None:
-        """Track MFE/MAE in R units from the effective entry."""
+        """Track MFE/MAE in R units from the effective entry (direction-aware)."""
         rpu = self.risk_per_unit
         if rpu <= 0:
             return
-        self.mfe_r = max(self.mfe_r, (high - self.entry_eff) / rpu)
-        self.mae_r = min(self.mae_r, (low - self.entry_eff) / rpu)
+        if self.is_short:
+            # Favourable = price falls (use the low); adverse = price rises.
+            self.mfe_r = max(self.mfe_r, (self.entry_eff - low) / rpu)
+            self.mae_r = min(self.mae_r, (self.entry_eff - high) / rpu)
+        else:
+            self.mfe_r = max(self.mfe_r, (high - self.entry_eff) / rpu)
+            self.mae_r = min(self.mae_r, (low - self.entry_eff) / rpu)
 
 
 @dataclass

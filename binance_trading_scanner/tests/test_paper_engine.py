@@ -11,7 +11,7 @@ from backtesting import BacktestConfig, BacktestEngine, RiskLimits
 from core.enums import Timeframe
 from paper_trading import PaperEngine, RESET_TOKEN
 from signals import SignalEngine
-from tests.conftest import bt_bull, bt_bull_then_crash, bt_flat_range
+from tests.conftest import bt_bear, bt_bear_then_pump, bt_bull, bt_bull_then_crash, bt_flat_range
 
 TF = Timeframe.H1
 
@@ -45,9 +45,12 @@ def _assert_parity(bt_trades, paper_trades):
         assert a.exit_reason.value == b["exit_reason"]
 
 
-@pytest.mark.parametrize("scenario", ["bull", "crash"])
+@pytest.mark.parametrize("scenario", ["bull", "crash", "bear", "pump"])
 def test_backtest_parity(tmp_path, scenario):
-    df = bt_bull(360) if scenario == "bull" else bt_bull_then_crash(250, 40)
+    df = {
+        "bull": bt_bull(360), "crash": bt_bull_then_crash(250, 40),
+        "bear": bt_bear(360), "pump": bt_bear_then_pump(250, 40),
+    }[scenario]
     cfg = BacktestConfig(capital=10_000)
     bt = BacktestEngine(SignalEngine(), cfg).run(df, "BTCUSDT", TF)
     pe = _paper(tmp_path, cfg)
@@ -55,6 +58,33 @@ def test_backtest_parity(tmp_path, scenario):
     pe.finalize(float(df["close"].iloc[-1]), int(df["close_time"].iloc[-1]), len(df) - 1)
     _assert_parity(bt.trades, _paper_trades(pe))
     pe.close()
+
+
+def test_short_parity_produces_shorts(tmp_path):
+    # Sanity: the bear parity scenario really does exercise SHORT trades.
+    df = bt_bear(360)
+    cfg = BacktestConfig(capital=10_000)
+    bt = BacktestEngine(SignalEngine(), cfg).run(df, "BTCUSDT", TF)
+    assert bt.trades and all(t.direction == "SHORT" for t in bt.trades)
+
+
+def test_short_open_position_survives_restart(tmp_path):
+    # A SHORT open position (incl. its direction) must be restored after a restart.
+    df = bt_bear(360)
+    cfg = BacktestConfig(capital=10_000)
+    for cut in range(212, 245):
+        p = _paper(tmp_path, cfg, name=f"s{cut}.db")
+        p.process_new_candles(df.iloc[:cut])
+        had_short = p.sim.position is not None and p.sim.position.is_short
+        p.close()
+        if had_short:
+            p2 = PaperEngine(SignalEngine(), cfg, str(tmp_path / f"s{cut}.db"), "BTCUSDT", TF)
+            assert p2.sim.position is not None
+            assert p2.sim.position.is_short
+            assert p2.sim.position.remaining_qty > 0
+            p2.close()
+            return
+    pytest.skip("no open short position window found in this synthetic path")
 
 
 # =========================================================================
