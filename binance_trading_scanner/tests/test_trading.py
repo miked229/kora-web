@@ -284,3 +284,102 @@ def test_crash_recovery_reconciles_without_duplicating(tmp_path):
     r = ex.submit(intent, FILT, _state())
     assert r.status == "DUPLICATE" and len(fake.orders) == 0
     s2.close()
+
+
+# ---- execution backend: Spot never shorts --------------------------------
+
+def test_spot_backend_allows_long_refuses_short():
+    from core.enums import SignalType
+    from trading import SpotTestnetExecution
+    be = SpotTestnetExecution()
+    assert be.decide(SignalType.LONG).allowed
+    d = be.decide(SignalType.SHORT)
+    assert not d.allowed
+    assert "NOT ENABLED FOR SPOT" in d.reason
+    assert d.note == "SHORT SIGNAL AVAILABLE"
+    assert be.decide(SignalType.NO_TRADE).allowed is False
+
+
+def test_futures_backend_not_available_in_this_build():
+    from core.enums import SignalType
+    from trading import FuturesTestnetExecution
+    be = FuturesTestnetExecution()
+    # It *could* short, but is not enabled -> refuses every direction (mirror of
+    # the "no mainnet order client" guarantee: real SHORT execution cannot happen).
+    assert not be.decide(SignalType.LONG).allowed
+    assert not be.decide(SignalType.SHORT).allowed
+
+
+def _session(kill_state, backend=None, enabled=True, **kw):
+    from backtesting.engine import BacktestConfig
+    from core.enums import Timeframe
+    from signals import SignalEngine
+    from trading import SpotTestnetExecution, TestnetSession
+    store = LiveOrderStore(":memory:")
+    fake = FakeTestnet()
+    cfg = SafetyConfig(whitelist={"BTCUSDT", "ETHUSDT"}, max_order_notional=1_000_000)
+    ex = SafeExecutor(KillSwitch(kill_state), cfg, store, testnet_client=fake)
+    sess = TestnetSession(
+        signal_engine=SignalEngine(), cfg=BacktestConfig(capital=10_000), executor=ex,
+        symbol="BTCUSDT", timeframe=Timeframe.H1, filters=FILT, enabled=enabled,
+        backend=backend or SpotTestnetExecution(), **kw)
+    return sess, fake
+
+
+def test_short_signal_never_becomes_a_spot_sell_to_open():
+    # A downtrend produces SHORT signals; on Spot they must be surfaced but NEVER
+    # sent as a SELL-to-open order.
+    from tests.conftest import bt_bear
+    sess, fake = _session(TradingState.TESTNET)
+    sess.run(bt_bear(320))
+    # Nothing was sent to the exchange: Spot cannot open a short.
+    assert fake.orders == []
+    skipped = [e for e in sess.journal if e["event"] == "EXECUTION_SKIPPED"]
+    assert skipped and any("NOT ENABLED FOR SPOT" in e["reason"] for e in skipped)
+    assert any(e.get("direction") == "SHORT" for e in skipped)
+
+
+def test_long_signal_does_execute_on_spot_testnet():
+    from tests.conftest import bt_bull
+    sess, fake = _session(TradingState.TESTNET)
+    sess.run(bt_bull(320))
+    # At least one BUY entry reached the (fake) testnet exchange.
+    assert any(side == "BUY" for (_sym, side, _q, _cid) in fake.orders)
+
+
+# ---- anti-overtrading guard ----------------------------------------------
+
+def test_overtrading_cooldown_blocks_rapid_entries():
+    from trading import OvertradingConfig, OvertradingGuard
+    g = OvertradingGuard(OvertradingConfig(cooldown_bars=5))
+    ok, _ = g.allow_entry(bar_index=10, now_ms=1_000)
+    assert ok
+    g.record_entry(bar_index=10, now_ms=1_000)
+    blocked, why = g.allow_entry(bar_index=12, now_ms=2_000)   # only 2 bars later
+    assert not blocked and "cooldown" in why
+    allowed, _ = g.allow_entry(bar_index=15, now_ms=3_000)     # 5 bars later
+    assert allowed
+
+
+def test_overtrading_max_trades_per_day():
+    from trading import OvertradingConfig, OvertradingGuard
+    g = OvertradingGuard(OvertradingConfig(max_trades_per_day=2))
+    day = 1_700_000_000_000
+    for k in range(2):
+        assert g.allow_entry(k, day)[0]
+        g.record_entry(k, day)
+    assert not g.allow_entry(3, day)[0]                         # 3rd blocked
+    next_day = day + 86_400_000
+    assert g.allow_entry(4, next_day)[0]                        # resets next day
+
+
+def test_overtrading_consecutive_loss_protection():
+    from trading import OvertradingConfig, OvertradingGuard
+    g = OvertradingGuard(OvertradingConfig(max_consecutive_losses=2))
+    g.record_result(-10.0)
+    assert g.allow_entry(1, 1)[0]                               # 1 loss -> still ok
+    g.record_result(-5.0)
+    blocked, why = g.allow_entry(2, 2)                          # 2 losses -> blocked
+    assert not blocked and "consecutive_loss" in why
+    g.record_result(20.0)                                       # a winner resets it
+    assert g.allow_entry(3, 3)[0]
