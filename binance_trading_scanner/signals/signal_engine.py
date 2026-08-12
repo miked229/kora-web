@@ -25,10 +25,8 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from core.enums import (
-    ScoreClass,
     SetupType,
     SignalType,
-    StructureClass,
     Timeframe,
     TrendClass,
 )

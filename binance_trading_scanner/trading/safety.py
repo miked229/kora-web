@@ -8,6 +8,7 @@ rules from the backtester — no duplicated logic.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Optional, Set
@@ -39,6 +40,7 @@ class OrderIntent:
     side: str                     # BUY / SELL
     quantity: float
     reference_price: float        # for notional / validation only
+    tag: str = ""                 # distinguishes legs (e.g. TP1/TP2/STOP) of one signal
 
 
 @dataclass
@@ -65,10 +67,29 @@ def client_order_id(intent: OrderIntent) -> str:
     timeframe/signal-time/side, we use a readable prefix (side initial + symbol)
     plus a hash of the FULL logical key — so BUY and SELL never collide.
     """
-    raw = f"{intent.strategy}|{intent.symbol}|{intent.timeframe}|{intent.signal_timestamp}|{intent.side}"
+    raw = (f"{intent.strategy}|{intent.symbol}|{intent.timeframe}|"
+           f"{intent.signal_timestamp}|{intent.side}|{intent.tag}")
     digest = hashlib.sha1(raw.encode()).hexdigest()[:22]
     prefix = re.sub(r"[^A-Za-z0-9]", "", f"{intent.side[:1]}{intent.symbol}")[:12]
     return f"{prefix}-{digest}"
+
+
+def conform_to_filters(quantity: float, price: float,
+                       filters: Optional[SymbolFilters]) -> tuple[float, float]:
+    """Round quantity down to step size and price to tick size (exchange-safe).
+
+    Returns ``(qty, price)`` that satisfy the LOT_SIZE / PRICE_FILTER grids so a
+    value derived from a signal can never be rejected for precision.
+    """
+    if filters is None:
+        return quantity, price
+    q = quantity
+    if filters.step_size and filters.step_size > 0:
+        q = (int(q / filters.step_size)) * filters.step_size
+    p = price
+    if filters.tick_size and filters.tick_size > 0:
+        p = (int(p / filters.tick_size)) * filters.tick_size
+    return q, p
 
 
 def _is_multiple(value: float, step: float) -> bool:
@@ -98,12 +119,12 @@ def check_order(
     if not checks["symbol_whitelisted"]:
         return fail("symbol_whitelisted", f"{intent.symbol} not in whitelist {sorted(cfg.whitelist)}")
 
-    # basic validity
-    if intent.quantity is None or intent.quantity <= 0:
-        return fail("quantity_positive", "quantity must be > 0")
+    # basic validity — reject None, non-finite (NaN/inf) and non-positive values.
+    if intent.quantity is None or not math.isfinite(intent.quantity) or intent.quantity <= 0:
+        return fail("quantity_positive", "quantity must be a positive finite number")
     checks["quantity_positive"] = True
-    if intent.reference_price is None or intent.reference_price <= 0:
-        return fail("price_positive", "reference price must be > 0")
+    if intent.reference_price is None or not math.isfinite(intent.reference_price) or intent.reference_price <= 0:
+        return fail("price_positive", "reference price must be a positive finite number")
     checks["price_positive"] = True
 
     notional = intent.quantity * intent.reference_price

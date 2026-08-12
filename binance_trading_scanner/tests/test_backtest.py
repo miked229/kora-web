@@ -5,7 +5,6 @@ conftest; results are never presented as evidence of profitability.
 """
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -19,7 +18,7 @@ from backtesting import (
 )
 from core.enums import ExitReason, SignalType, Timeframe
 from core.models import SymbolFilters
-from tests.conftest import _bt_ohlc, bt_bull, bt_bull_then_crash, bt_flat_range
+from tests.conftest import bt_bull, bt_bull_then_crash, bt_flat_range
 
 TF = Timeframe.H1
 

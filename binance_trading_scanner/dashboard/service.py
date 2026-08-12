@@ -17,7 +17,7 @@ Responsibilities:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -26,7 +26,7 @@ from binance.client import BinanceRESTClient
 from binance.exchange_info import ExchangeInfoService
 from binance.market_data import MarketDataService, candles_to_df
 from config import Settings, get_settings
-from core.enums import SignalType, Timeframe
+from core.enums import Timeframe
 from core.exceptions import ScannerError
 from core.logger import get_logger
 from core.models import Signal

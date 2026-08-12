@@ -1,56 +1,77 @@
 # Binance Trading Scanner Pro
 
-A modular, professional platform for market scanning, technical analysis,
-confluence-based signal generation, backtesting and paper trading on **Binance
-Spot** — built to evolve safely from research toward (optional, opt-in) demo
-execution.
+A modular platform for market scanning, technical analysis, confluence-based
+signal generation, backtesting, paper trading and **safe Binance Spot Testnet**
+execution — built to evolve carefully toward (future, gated) live trading.
 
-> ⚠️ **Not financial advice. No live orders are placed.** Scores describe the
-> strength of the system's confluence rules — **not** a probability of profit.
-> Trading crypto assets carries substantial risk of loss.
+> ⚠️ **Not financial advice. No real-money orders are placed.** Scores describe
+> the strength of the system's confluence rules — **not** a probability of
+> profit. Backtest/paper/testnet results are historical/simulated and are **not**
+> evidence of profitability. Trading crypto carries substantial risk of loss.
 
 ---
 
-## What it does
-
-The system is being built in disciplined phases:
+## Status
 
 | Phase | Scope | Status |
 |------:|-------|--------|
-| 1 | Skeleton, config, logging, models, **public Binance market data** | ✅ implemented |
-| 2 | Indicators (trend / momentum / volatility / volume / structure) | ⏳ scaffolded |
-| 3 | Confluence signal engine + 0–100 scoring | ⏳ scaffolded |
-| 4 | Streamlit dashboard (overview, scanner, chart, settings) | 🚧 Phase 1 overview live |
-| 5 | Backtesting (fees, slippage, no look-ahead, in/out-of-sample) | ⏳ scaffolded |
-| 6 | Paper trading (internal simulator) | ⏳ scaffolded |
-| 7 | Binance Spot **Testnet / Demo Mode** (opt-in) | ⏳ scaffolded |
-| 8 | Testing / hardening | ongoing |
+| 1 | Skeleton, config, logging, models, public market data | ✅ |
+| 2 | Indicators (trend / momentum / volatility / volume / structure) | ✅ |
+| 3 | Confluence signal engine + 0–100 scoring | ✅ |
+| 4 | Streamlit dashboard | ✅ |
+| 5 | Backtesting (fees, slippage, no look-ahead, in/out-of-sample) | ✅ |
+| 6 | Paper trading (internal simulator, parity with backtester) | ✅ |
+| 7 | Real market data + WebSocket + **Testnet safe execution** | ✅ |
+| 8 | Final hardening / production readiness | ✅ |
 
-**Live trading is intentionally disabled** and will not be implemented without
-explicit approval.
+**Live (mainnet) trading is NOT implemented.** There is intentionally no mainnet
+order client, so real-money orders cannot be placed regardless of configuration.
 
 ## Architecture
 
 ```
 binance_trading_scanner/
-├── app.py                  # Streamlit entry + headless self-check
-├── config.py               # env-driven, validated settings (no secrets stored)
-├── core/                   # enums, exceptions, logger, pydantic models
-├── binance/                # REST client, market data, exchange info, ws/demo (scaffold)
-├── data/                   # SQLite database, TTL cache, incremental candle store
-├── indicators/             # trend / momentum / volatility / volume / structure
-├── strategies/             # base + trend / breakout / mean-reversion / confluence
-├── signals/                # signal engine, scoring, filters
-├── risk/                   # position sizing, stop-loss, take-profit, risk manager
-├── backtesting/            # engine, metrics, trade, report
-├── alerts/                 # notifier (Streamlit/logs now, Telegram later)
-├── dashboard/              # per-page Streamlit modules
-└── tests/                  # pytest suite (offline; mocked HTTP)
+├── app.py            # Streamlit entry + CLIs: --check / --testnet-check / --live-check
+├── config.py         # env-driven settings (secrets never stored on the object)
+├── core/             # enums, exceptions, UTC logger (secret redaction), pydantic models
+├── binance/          # REST client, market data, exchange info, websocket, testnet client
+├── data/             # SQLite, TTL cache, incremental candle store
+├── indicators/       # trend / momentum / volatility / volume / structure (causal)
+├── signals/          # confluence engine, scoring, filters (single source of signals)
+├── backtesting/      # simulator (shared core), engine, execution, portfolio, metrics,
+│                     #   data_split, report
+├── paper_trading/    # internal simulated account (reuses the backtester's simulator)
+├── trading/          # kill switch, safety, testnet client wiring, order store,
+│                     #   reconciliation, SafeExecutor, testnet session
+└── dashboard/        # Streamlit pages (overview, scanner, chart, signal details,
+                      #   paper, execution) + demo data
 ```
 
-Design principles: each concern is an isolated, testable module; all market
-data is validated at the boundary (`core/models.py`); the dashboard holds no
-business logic.
+Design principles: one concern per module; the **SignalEngine is the only source
+of signals**; the backtester, paper trader and testnet session all drive the
+**same `backtesting.Simulator`** so their entry/stop/TP/fee/slippage rules can
+never diverge; all market data is validated at the boundary; no look-ahead.
+
+## Modes
+
+The dashboard always shows a permanent, unambiguous indicator:
+
+| Indicator | Data | Orders |
+|-----------|------|--------|
+| 🟢 **DEMO** | synthetic | none |
+| 🔵 **LIVE DATA — NO ORDERS** | real Binance market data | none |
+| (Paper Trading page) | demo or live data | **internal simulation only** |
+| 🟡 **TESTNET** | real/testnet data | **Binance Spot Testnet only** (fake money) |
+| 🔴 **LIVE TRADING** | — | **disabled in this build** |
+
+- **Demo** — deterministic synthetic candles; verify the UI/engine offline.
+- **Live Data** — real, **closed** candles; verify the SignalEngine on real
+  markets with zero orders. `LIVE MARKET DATA ≠ LIVE TRADING`.
+- **Paper** — a persistent internal account (balances, orders, fills, positions,
+  PnL, equity, drawdown, journal). No Binance orders. Parity-tested against the
+  backtester.
+- **Testnet** — orders go only to Binance Spot Testnet after passing every
+  safety check.
 
 ## Installation
 
@@ -60,71 +81,76 @@ Requires **Python 3.11+**.
 cd binance_trading_scanner
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # then edit as needed
+cp .env.example .env        # edit as needed
 ```
-
-## Environment variables
-
-See `.env.example`. Public market data (Phase 1) needs **no credentials**.
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `BINANCE_ENV` | `mainnet` or `testnet` | `mainnet` |
-| `BINANCE_REST_BASE` | REST base URL (use `https://data-api.binance.vision` if `api.binance.com` is blocked) | `https://api.binance.com` |
-| `APP_MODE` | `BACKTEST` / `PAPER` / `BINANCE_DEMO` / `LIVE_DISABLED` | `PAPER` |
-| `CAPITAL`, `RISK_PER_TRADE` | risk sizing | `10000`, `0.01` |
-| `FEE_RATE`, `SLIPPAGE_RATE` | backtest cost model | `0.001`, `0.0005` |
-| `BINANCE_API_KEY` / `BINANCE_API_SECRET` | **only** for Testnet/Demo (later) | empty |
-
-Secrets are read from the environment on demand and are **never** logged,
-rendered in the UI, or written to the database. `.env` is git-ignored.
 
 ## Running
 
-Launch the dashboard:
-
 ```bash
-streamlit run app.py
+streamlit run app.py            # dashboard
+python app.py --check           # public market-data connectivity self-check
+python app.py --testnet-check   # Testnet readiness (NO orders placed)
+python app.py --live-check      # always prints "LIVE TRADING DISABLED"
+pytest                          # full offline test suite
 ```
 
-Headless connectivity self-check (prints BTCUSDT / ETHUSDT, no Streamlit
-needed):
+## Security
 
-```bash
-python app.py --check
-```
+- Credentials come **only** from environment variables (a git-ignored `.env`).
+  They are never hardcoded, logged, printed, shown in the UI, stored in SQLite,
+  returned to the frontend, or committed. The testnet client redacts
+  signature/auth errors.
+- `.gitignore` excludes `.env`, `.env.*` (except `.env.example`) and `*.db`.
+- The database layer refuses credential-like keys.
+
+## API permissions (for a future testnet/live trading key)
+
+The trading key must have **READ + SPOT TRADING** and **NO WITHDRAWALS**. Add an
+**IP restriction** if available. See `TESTNET_SETUP.md`.
+
+## Risk limits
+
+Configurable and enforced on every order (nothing may violate a limit):
+
+- `MAX_RISK_PER_TRADE`, `MAX_ORDER_NOTIONAL`, `MAX_DAILY_LOSS`,
+  `MAX_OPEN_POSITIONS`, `MAX_TOTAL_EXPOSURE`, `SYMBOL_WHITELIST` (default
+  BTCUSDT/ETHUSDT). Order safety also validates exchange filters (minQty,
+  stepSize, tickSize, minNotional) and balance, and blocks duplicate signals.
+
+## Kill switch & emergency stop
+
+- Global kill switch: `TRADING_DISABLED` (default) / `TRADING_TESTNET` /
+  `TRADING_LIVE`. It never changes to LIVE on its own.
+- **STOP ALL TRADING** blocks new orders while preserving positions for a
+  controlled exit; **Cancel open orders** is a separate action.
+
+## Recovery
+
+State is persisted to SQLite. On restart the app rebuilds account/positions/
+orders/journal/equity and reconciles open orders with the exchange, so a crash
+never creates a duplicate order. Orders are never assumed filled — status,
+executed quantity, average price and fees are read back from the exchange.
 
 ## Testing
 
-```bash
-pytest
-```
+Fully **offline**: REST/WS/testnet are exercised through mocked transports; no
+network or API key is required. Coverage of `trading/`, `backtesting/`,
+`paper_trading/` and `binance/` is ~90%. Highlights: no-look-ahead proofs,
+backtest↔paper↔testnet parity, intrabar ambiguity, crash recovery, reconciliation,
+kill-switch gating, and the guarantee that no path leads from live data to a
+mainnet order.
 
-The suite is fully **offline** — the Binance REST client is exercised through a
-mocked HTTP transport, so no network (or API key) is required. It covers model
-validation, OHLC integrity, duplicate/gap detection, retry/rate-limit handling,
-exchange-info symbol validation, scoring buckets, logging redaction and the
-database secret guard.
+## What is NOT enabled / known limitations
 
-## Modes (roadmap)
-
-- **Backtest** — replay historical candles with fees, slippage and no
-  look-ahead; separate in-sample vs out-of-sample.
-- **Paper** — internal simulator: balances, fills, fees, PnL, drawdown. No real
-  orders.
-- **Binance Demo** — Binance Spot **Testnet** only, opt-in, credentials via
-  `.env`.
-- **Live** — disabled.
-
-## Risk & limitations
-
-- Signals and scores are **not** predictions or guarantees.
-- Backtest results are hypothetical and subject to look-ahead, survivorship and
-  overfitting biases; the engine mitigates but cannot eliminate them.
-- Market data can be delayed, incomplete or wrong; validate before acting.
-- You are solely responsible for any decisions made with this software.
+- ❌ Live (mainnet) real-money trading — no mainnet order client exists.
+- ❌ Withdrawals.
+- Long-only Spot, one position per symbol; no portfolio correlation model yet.
+- Signals/scores are not predictions; weights are hand-set and must be validated
+  by backtesting, not treated as an edge.
+- In this environment Binance is network-blocked, so live/testnet paths are
+  validated with deterministic mocks only.
 
 ## License / disclaimer
 
-For educational and research purposes. Provided “as is”, without warranty of
-any kind. Not affiliated with Binance.
+Educational and research use. Provided "as is", without warranty. Not affiliated
+with Binance.

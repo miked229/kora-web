@@ -16,14 +16,17 @@ from .safety import (
     SafetyResult,
     check_order,
     client_order_id,
+    conform_to_filters,
 )
 from .store import LiveOrderStore
+from .testnet_session import TestnetSession, run_testnet_session
 
 __all__ = [
     "SafeExecutor", "ExecutionResult",
     "KillSwitch", "TradingState", "enable_live_trading", "mode_indicator",
     "SafetyConfig", "SafetyResult", "OrderIntent", "PortfolioState",
-    "check_order", "client_order_id", "DEFAULT_WHITELIST",
+    "check_order", "client_order_id", "conform_to_filters", "DEFAULT_WHITELIST",
     "LiveOrderStore",
+    "TestnetSession", "run_testnet_session",
     "ReconciledOrder", "reconcile_order", "reconcile_all", "reconcile_from_response",
 ]

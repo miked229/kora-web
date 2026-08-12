@@ -23,7 +23,7 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 
-from core.enums import ExitReason, SignalType, StructureClass, Timeframe
+from core.enums import Timeframe
 from core.logger import get_logger
 from core.models import SymbolFilters
 from signals import SignalEngine

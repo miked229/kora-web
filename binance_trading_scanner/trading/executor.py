@@ -115,8 +115,32 @@ class SafeExecutor:
         """STOP ALL TRADING: block new orders; keep positions for controlled exit."""
         self.kill.emergency_stop(reason)
         self.store.log_event("EMERGENCY_STOP", reason)
+        self._persist_kill_state()
         if cancel_open and symbol:
             self.cancel_open_orders(symbol)
+
+    def resume(self) -> None:
+        """Clear the emergency stop (does not change the trading state)."""
+        self.kill.resume()
+        self.store.log_event("RESUME", "emergency stop cleared")
+        self._persist_kill_state()
+
+    def _persist_kill_state(self) -> None:
+        self.store.save_kill_state(self.kill.state.value, self.kill.emergency_stopped,
+                                   self.kill.stop_reason, self.kill.stopped_at)
+
+    def restore_kill_state(self) -> None:
+        """Rebuild the kill switch from the store after a restart (spec 9, 15)."""
+        row = self.store.load_kill_state()
+        if not row:
+            return
+        try:
+            self.kill.state = TradingState(row["state"])
+        except (ValueError, KeyError):
+            pass
+        self.kill.emergency_stopped = bool(row["emergency_stopped"])
+        self.kill.stop_reason = row["stop_reason"]
+        self.kill.stopped_at = row["stopped_at"]
 
     def cancel_open_orders(self, symbol: str) -> list:
         """Separate action: cancel resting orders (testnet only) without stopping."""

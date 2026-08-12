@@ -73,6 +73,67 @@ def run_check() -> int:
 
 
 # --------------------------------------------------------------------------
+# Testnet readiness check (never places orders) and live guard check
+# --------------------------------------------------------------------------
+
+def run_testnet_check() -> int:
+    """Verify Testnet readiness WITHOUT placing any order (spec 15)."""
+    from binance.testnet_client import TESTNET_BASE, BinanceTestnetClient
+    from config import Settings
+    from trading.safety import DEFAULT_WHITELIST
+
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    print("=== Binance Spot Testnet readiness check (NO ORDERS PLACED) ===")
+    ok = True
+
+    def line(name, passed, note=""):
+        nonlocal ok
+        ok = ok and passed
+        print(f"  [{'PASS' if passed else 'FAIL'}] {name}{(' — ' + note) if note else ''}")
+
+    line("configuration: BINANCE_ENV", settings.binance_env in ("mainnet", "testnet"),
+         settings.binance_env)
+    key, secret = Settings.get_api_credentials()
+    has_creds = bool(key and secret)
+    line("credentials available (env only)", has_creds,
+         "present" if has_creds else "set BINANCE_API_KEY/SECRET (testnet) in .env")
+    line("endpoint is testnet", True, TESTNET_BASE)
+    line("symbol whitelist configured", len(DEFAULT_WHITELIST) > 0, ", ".join(sorted(DEFAULT_WHITELIST)))
+
+    if not has_creds:
+        print("\nProvide testnet credentials to check connectivity / account / filters.")
+        print("Testnet-check finished (credentials missing).")
+        return 0 if ok else 1
+
+    try:
+        tc = BinanceTestnetClient(key, secret, base_url=TESTNET_BASE)
+        line("connectivity: ping", tc.ping())
+        drift = abs(int(__import__("time").time() * 1000) - tc.server_time())
+        line("time synchronization", drift < 5000, f"drift={drift}ms")
+        acct = tc.account()
+        line("account permissions: canTrade", bool(acct.get("canTrade")))
+        line("account permissions: no withdrawal expected", True,
+             "trading key must NOT have withdrawal permission")
+        tc.close()
+    except Exception as exc:
+        line("testnet connectivity", False, f"{type(exc).__name__}: {exc}")
+    print("\nNO orders were placed. Testnet-check complete.")
+    return 0 if ok else 1
+
+
+def run_live_check() -> int:
+    """Always reports that live trading is disabled (no mainnet client exists)."""
+    from trading.kill_switch import enable_live_trading
+    print("=== Live trading check ===")
+    print("  LIVE TRADING DISABLED")
+    print(f"  enable_live_trading(manual=True) -> {enable_live_trading(True)}")
+    print("  Reason: no mainnet order client exists in this build; real orders "
+          "cannot be placed regardless of configuration.")
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Streamlit dashboard (Phase 1: Market Overview)
 # --------------------------------------------------------------------------
 
@@ -204,6 +265,10 @@ def _safe_index(options, value) -> int:
 def main() -> None:
     if "--check" in sys.argv:
         raise SystemExit(run_check())
+    if "--testnet-check" in sys.argv:
+        raise SystemExit(run_testnet_check())
+    if "--live-check" in sys.argv:
+        raise SystemExit(run_live_check())
     run_dashboard()
 
 

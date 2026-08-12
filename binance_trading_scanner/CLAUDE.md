@@ -83,12 +83,20 @@ streamlit run app.py              # dashboard
 
 ## No live trading without explicit approval
 
-- `TradingMode.LIVE_DISABLED` is a sentinel; there is no code path that places a
-  production order, and none may be added.
-- `binance/demo_trader.py` raises rather than sending orders until its phase is
-  explicitly enabled, and even then targets Testnet only.
-- Do not enable live execution, real order placement, or mainnet signed
-  endpoints without an explicit, written request from the project owner.
+- There is intentionally **no mainnet order client**. The only order-placing
+  client is `binance/testnet_client.BinanceTestnetClient`, which refuses any
+  non-testnet host. Do not add a mainnet order client without an explicit,
+  written request from the project owner.
+- The `trading.SafeExecutor` is the single order gate: idempotency → kill switch
+  → safety checks → routing. `TradingState.DISABLED` (default) sends nothing;
+  `TESTNET` routes only to Testnet; `LIVE` is blocked (and even fully confirmed
+  it raises, because no mainnet client exists).
+- `enable_live_trading()` requires `TRADING_LIVE=true` + `ENABLE_LIVE_CONFIRMATION
+  =true` in the environment AND a manual confirmation — and even then, no live
+  order can be placed in this build.
+- Test `tests/test_hardening.py::test_no_mainnet_order_client_exists` guards that
+  no code path reaches a mainnet order endpoint; keep it passing.
+- `binance/demo_trader.py` raises rather than sending orders.
 
 ## Development process
 

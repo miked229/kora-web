@@ -8,15 +8,13 @@ places real-money orders.
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import List
 
 import streamlit as st
 
 from core.enums import Timeframe
 from trading import LiveOrderStore, TradingState, mode_indicator
-from trading.kill_switch import KillSwitch
 
-from ._ui import fmt_price
 from .service import DashboardService
 
 _STATE_COLORS = {
@@ -44,13 +42,52 @@ def render(service: DashboardService, symbols: List[str], timeframe: Timeframe, 
     )
 
     _connection(service)
+    _system_health(service, ss)
     _kill_switch(ss)
     _emergency(service, ss)
     _explainer()
     _orders_and_events(service)
 
 
+def system_health(service: DashboardService, trading_state: str,
+                  emergency_stopped: bool) -> dict:
+    """Component health snapshot (pure/testable — no Streamlit)."""
+    health = {}
+    # Market data
+    try:
+        health["Market Data"] = "OK" if service.probe_live() else "UNAVAILABLE (use Demo)"
+    except Exception as exc:
+        health["Market Data"] = f"ERROR: {type(exc).__name__}"
+    # WebSocket (config present; live connection needs network)
+    from binance.websocket import MAINNET_WS
+    health["WebSocket"] = f"configured ({MAINNET_WS})"
+    # Database
+    try:
+        _store(service).events(1)
+        health["Database"] = "OK"
+    except Exception as exc:
+        health["Database"] = f"ERROR: {type(exc).__name__}"
+    # Signal engine
+    health["Signal Engine"] = "OK" if service._engine is not None else "MISSING"
+    # Paper trader
+    health["Paper Trader"] = "ready"
+    # Testnet
+    health["Testnet"] = "credentials present" if service_has_credentials() else "no credentials"
+    # Kill switch
+    health["Kill Switch"] = ("EMERGENCY STOP" if emergency_stopped else trading_state)
+    return health
+
+
 # -- sections --------------------------------------------------------------
+
+def _system_health(service: DashboardService, ss) -> None:
+    st.markdown("#### System health")
+    import pandas as pd
+    health = system_health(service, ss.get("trading_state", "TRADING_DISABLED"),
+                           bool(ss.get("emergency_stopped", False)))
+    df = pd.DataFrame([{"Component": k, "Status": v} for k, v in health.items()])
+    st.dataframe(df, hide_index=True, use_container_width=True)
+
 
 def _connection(service: DashboardService) -> None:
     st.markdown("#### Binance connection (market data)")

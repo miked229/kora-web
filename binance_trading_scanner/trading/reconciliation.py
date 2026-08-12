@@ -8,7 +8,7 @@ the local store to match.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 from core.logger import get_logger
 

@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS trading_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER, kind TEXT, detail TEXT
 );
+CREATE TABLE IF NOT EXISTS kill_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    state TEXT, emergency_stopped INTEGER, stop_reason TEXT, stopped_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_orders_symbol_status ON live_orders(symbol, status);
+CREATE INDEX IF NOT EXISTS idx_orders_signal ON live_orders(signal_timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON trading_events(ts);
 """
 
 # Terminal (fully-resolved) exchange statuses.
@@ -103,3 +110,16 @@ class LiveOrderStore:
     def events(self, limit: int = 200) -> List[dict]:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM trading_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
+    # kill-switch persistence (survives restart) ---------------------------
+    def save_kill_state(self, state: str, emergency_stopped: bool,
+                        stop_reason: Optional[str], stopped_at: Optional[int]) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO kill_state (id, state, emergency_stopped, stop_reason, stopped_at) "
+            "VALUES (1, ?, ?, ?, ?)",
+            (state, 1 if emergency_stopped else 0, stop_reason, stopped_at))
+        self.conn.commit()
+
+    def load_kill_state(self) -> Optional[dict]:
+        row = self.conn.execute("SELECT * FROM kill_state WHERE id=1").fetchone()
+        return dict(row) if row else None

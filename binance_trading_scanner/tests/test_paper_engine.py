@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from backtesting import BacktestConfig, BacktestEngine, RiskLimits
-from core.enums import ExitReason, Timeframe
+from core.enums import Timeframe
 from paper_trading import PaperEngine, RESET_TOKEN
 from signals import SignalEngine
 from tests.conftest import bt_bull, bt_bull_then_crash, bt_flat_range
