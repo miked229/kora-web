@@ -8,9 +8,10 @@ from typing import Optional
 
 from core.enums import SignalType
 
-# Colour-blind-friendly palette (teal for go, amber for caution, grey for none).
+# Colour-blind-friendly palette (teal for long, red for short, grey for none).
 SIGNAL_COLORS = {
     SignalType.LONG.value: "#0e9f6e",       # green
+    SignalType.SHORT.value: "#e02424",      # red
     SignalType.NEUTRAL.value: "#8a8f98",    # grey
     SignalType.NO_TRADE.value: "#6b7280",   # slate
 }

@@ -52,6 +52,14 @@ of signals**; the backtester, paper trader and testnet session all drive the
 **same `backtesting.Simulator`** so their entry/stop/TP/fee/slippage rules can
 never diverge; all market data is validated at the boundary; no look-ahead.
 
+**Symmetric LONG + SHORT.** The engine evaluates LONG and SHORT **independently**
+(a lack of a long setup is never a short) and reports a separate `long_score` /
+`short_score`. LONG plans have stop < entry and TP > entry; SHORT plans mirror it
+(stop > entry, TP < entry). SHORT signals are backtested and paper-traded, but
+**Spot cannot short**: an `ExecutionBackend` gate (`SpotTestnetExecution`) refuses
+SHORT so it is never sent as a spot SELL order. Real SHORT execution would need a
+(future, currently disabled) Futures backend. See `IMPLEMENTATION_REPORT.md`.
+
 ## Modes
 
 The dashboard always shows a permanent, unambiguous indicator:

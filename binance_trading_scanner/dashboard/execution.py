@@ -43,6 +43,7 @@ def render(service: DashboardService, symbols: List[str], timeframe: Timeframe, 
 
     _connection(service)
     _system_health(service, ss)
+    _execution_backend()
     _kill_switch(ss)
     _emergency(service, ss)
     _explainer()
@@ -101,6 +102,29 @@ def _connection(service: DashboardService) -> None:
     if not connected:
         st.info("🔌 LIVE DATA UNAVAILABLE from this environment — using Demo data is fine "
                 "for verifying the engine. LIVE MARKET DATA ≠ LIVE TRADING.")
+
+
+def _execution_backend() -> None:
+    """Show which directions the active execution backend can actually place.
+
+    The signal engine is symmetric (LONG + SHORT), but Spot cannot short: a SHORT
+    is signalled/backtested/paper-traded and NEVER sent as a spot SELL-to-open.
+    """
+    from core.enums import SignalType
+    from trading import SpotTestnetExecution
+
+    backend = SpotTestnetExecution()
+    st.markdown("#### Execution backend")
+    c = st.columns(3)
+    c[0].metric("Backend", f"{backend.name} ({backend.market})")
+    c[1].metric("LONG execution", "ENABLED" if backend.decide(SignalType.LONG).allowed else "OFF")
+    c[2].metric("SHORT execution", "ENABLED" if backend.decide(SignalType.SHORT).allowed else "NOT ENABLED")
+    st.warning(
+        "**SHORT SIGNAL AVAILABLE — SHORT EXECUTION BACKEND NOT ENABLED FOR SPOT.** "
+        "SHORT signals are produced, backtested and paper-traded, but Spot cannot short "
+        "natively, so a SHORT is never converted into a spot SELL order. Real SHORT "
+        "execution would require a (future, currently disabled) Futures backend."
+    )
 
 
 def _kill_switch(ss) -> None:

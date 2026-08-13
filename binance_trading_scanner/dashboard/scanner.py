@@ -18,7 +18,8 @@ from .service import DashboardService
 
 _COLUMNS = [
     "Symbol", "Price", "Trend", "Structure", "RSI", "ADX", "RVOL",
-    "Score", "Raw Score", "Signal", "Setup", "Entry", "Stop", "TP1", "TP2", "R:R",
+    "Score", "Raw Score", "Long Score", "Short Score", "Signal", "Setup",
+    "Entry", "Stop", "TP1", "TP2", "R:R",
 ]
 
 

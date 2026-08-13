@@ -45,13 +45,24 @@ def render(service: DashboardService, symbols: List[str], timeframe: Timeframe,
     top[1].metric("SCORE", f"{s.score:.0f}/100")
     top[2].metric("RAW SCORE", f"{s.raw_score:.0f}/100")
 
-    if s.direction is SignalType.LONG:
+    # Independent LONG / SHORT confluence (LONG and SHORT are evaluated separately).
+    ls = st.columns(2)
+    ls[0].metric("LONG SCORE", f"{s.long_score:.0f}/100")
+    ls[1].metric("SHORT SCORE", f"{s.short_score:.0f}/100")
+
+    if s.direction.is_directional:
         plan = st.columns(4)
         plan[0].metric("Entry", fmt_price(s.entry))
         plan[1].metric("Stop", fmt_price(s.stop), help=f"method: {s.stop_method}")
         plan[2].metric("TP1", fmt_price(s.take_profit_1))
         plan[3].metric("TP2", fmt_price(s.take_profit_2))
-        st.caption(f"R:R 1:{s.risk_reward} · setup: {s.setup_type.value} — hypothetical, no orders.")
+        st.caption(f"{s.direction.value} · R:R 1:{s.risk_reward} · setup: {s.setup_type.value} "
+                   "— hypothetical, no orders.")
+        if s.direction is SignalType.SHORT:
+            st.warning(
+                "**SHORT SIGNAL AVAILABLE** — SHORT execution backend NOT enabled for Spot. "
+                "This SHORT is backtested/paper only and is never sent as a spot SELL order."
+            )
 
     # Per-block scores
     st.markdown("#### Block scores")

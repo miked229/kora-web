@@ -61,12 +61,12 @@ def build_chart(analysis: Analysis, max_bars: int = 180):
             fig.add_hline(y=sr.nearest_resistance, line=dict(color="#e02424", width=1, dash="dash"),
                           annotation_text="Resistance", annotation_position="top left")
 
-    # Trade plan (LONG only)
+    # Trade plan (LONG or SHORT). Stop is drawn red, take-profits green either way.
     s = analysis.signal
-    if s is not None and s.direction is SignalType.LONG:
+    if s is not None and s.direction.is_directional:
         if s.entry is not None:
             fig.add_hline(y=s.entry, line=dict(color="#111827", width=1.2),
-                          annotation_text="Entry", annotation_position="right")
+                          annotation_text=f"Entry ({s.direction.value})", annotation_position="right")
         if s.stop is not None:
             fig.add_hline(y=s.stop, line=dict(color="#e02424", width=1.2, dash="dot"),
                           annotation_text="Stop", annotation_position="right")
@@ -91,11 +91,13 @@ def render(service: DashboardService, symbols: List[str], timeframe: Timeframe,
         st.error(a.error or "Unavailable")
         return
     st.plotly_chart(build_chart(a), use_container_width=True)
-    if a.signal and a.signal.direction is SignalType.LONG:
+    if a.signal and a.signal.direction.is_directional:
         st.caption(
-            f"Entry {a.signal.entry:.4f} · Stop {a.signal.stop:.4f} "
+            f"{a.signal.direction.value} · Entry {a.signal.entry:.4f} · Stop {a.signal.stop:.4f} "
             f"({a.signal.stop_method}) · R:R 1:{a.signal.risk_reward} — hypothetical, no orders."
         )
+        if a.signal.direction is SignalType.SHORT:
+            st.caption("SHORT SIGNAL AVAILABLE — SHORT execution backend NOT enabled for Spot.")
 
 
 def _index_of(symbols: List[str], selected: str) -> int:

@@ -207,6 +207,8 @@ class DashboardService:
             "RVOL": rvol,
             "Score": round(s.score, 1),
             "Raw Score": round(s.raw_score, 1),
+            "Long Score": round(s.long_score, 1),
+            "Short Score": round(s.short_score, 1),
             "Signal": s.direction.value,
             "Setup": s.setup_type.value if s.setup_type else None,
             "Entry": s.entry,
