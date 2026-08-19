@@ -49,6 +49,11 @@ class BacktestConfig:
     filters: Optional[SymbolFilters] = None
     exit_on_structure_break: bool = True
     min_bars: Optional[int] = None     # defaults to the signal engine's min_bars
+    # Which directions may be EXECUTED. The SignalEngine still decides LONG/SHORT
+    # identically; this only filters which decisions open a position, so a
+    # LONG-only or SHORT-only validation run reuses the exact same signals. The
+    # default executes both and is byte-identical to the unfiltered engine.
+    allowed_directions: frozenset = frozenset({"LONG", "SHORT"})
 
     def __post_init__(self) -> None:
         self.limits.risk_per_trade = self.risk_per_trade

@@ -90,9 +90,12 @@ class Simulator:
                     res.closed_trades.append(self._build_trade(bar_index))
                     self.position = None
 
-        # 4. Schedule an entry for the NEXT candle if flat and directional.
+        # 4. Schedule an entry for the NEXT candle if flat and directional. The
+        #    signal is unchanged; ``allowed_directions`` only filters execution
+        #    (used by LONG-only / SHORT-only validation runs).
+        allowed = getattr(self.cfg, "allowed_directions", frozenset({"LONG", "SHORT"}))
         if (self.position is None and self.pending is None
-                and sig.direction.is_directional
+                and sig.direction.is_directional and sig.direction.value in allowed
                 and sig.entry and sig.stop and len(sig.take_profits) >= 1):
             tps = sig.take_profits
             self.pending = {
