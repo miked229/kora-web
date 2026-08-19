@@ -15,11 +15,13 @@ from backtesting import (
     BacktestEngine,
     DirectionReport,
     MarketDataResult,
+    RealDataUnavailable,
     ValidationConfig,
     detect_overfitting,
     edge_verdict,
     final_table,
     load_history,
+    load_real_history,
     synthetic_history,
 )
 from backtesting.portfolio import EquityPoint
@@ -174,6 +176,79 @@ def test_load_history_uses_real_when_market_available():
     res = load_history("BTCUSDT", TF, 200, prefer_real=True, market=_FakeMarket(350))
     assert res.source == "BINANCE"
     assert len(res.df) == 200
+
+
+# ---- REAL STRICT mode: no synthetic fallback -----------------------------
+
+class _PagingMarket:
+    """Fake Binance that pages backwards like the real klines endpoint."""
+
+    def __init__(self, total=2500):
+        step = TF.milliseconds
+        start = 1_500_000_000_000
+        self.candles = []
+        price = 100.0
+        for i in range(total):
+            ot = start + i * step
+            price += 0.05
+            o, c = price, price + 0.1
+            self.candles.append(Candle(open_time=ot, open=o, high=c + 0.2, low=o - 0.2,
+                                       close=c, volume=1000.0, close_time=ot + step - 1,
+                                       is_closed=True))
+
+    def get_klines(self, symbol, timeframe, *, limit=1000, end_time=None):
+        pool = self.candles if end_time is None else [c for c in self.candles if c.open_time <= end_time]
+        return pool[-limit:]
+
+
+class _DeadMarket:
+    def get_klines(self, *a, **k):
+        raise RuntimeError("403 Forbidden")
+
+
+def test_load_real_history_raises_and_never_falls_back():
+    # Connection failure -> RealDataUnavailable, NEVER synthetic.
+    with pytest.raises(RealDataUnavailable):
+        load_real_history("BTCUSDT", TF, 1000, market=_DeadMarket(), min_bars=600)
+
+
+def test_load_real_history_raises_on_insufficient_bars():
+    with pytest.raises(RealDataUnavailable):
+        load_real_history("BTCUSDT", TF, 2000, market=_PagingMarket(total=300), min_bars=600)
+
+
+def test_load_real_history_pages_and_returns_real():
+    res = load_real_history("BTCUSDT", TF, 2000, market=_PagingMarket(total=2500), min_bars=600)
+    assert res.source == "BINANCE"
+    assert len(res.df) == 2000
+    # chronological, unique, no synthetic marker
+    ot = res.df["open_time"].to_numpy()
+    assert (ot[1:] > ot[:-1]).all()
+
+
+def test_cli_real_mode_writes_failure_report_without_synthetic(tmp_path, monkeypatch):
+    import validate
+    out = tmp_path / "REAL_VALIDATION_REPORT.md"
+
+    def boom(*a, **k):
+        raise RealDataUnavailable("blocked: 403 Forbidden")
+
+    monkeypatch.setattr(validate, "load_real_history", boom)
+    rc = validate.main(["--real", "--symbols", "BTCUSDT", "--timeframes", "4h",
+                        "--bars", "1000", "--out", str(out)])
+    assert rc == 1                                   # non-zero on failure
+    text = out.read_text()
+    assert "REAL DATA VALIDATION FAILED" in text
+    assert "READY FOR TESTNET: NO" in text
+    assert "SYNTHETIC" not in text.upper() or "synthetic data is never" in text.lower()
+
+
+def test_verdict_lines_format():
+    from validate import verdict_lines
+    lines = verdict_lines({"real_data": False, "long_edge": False, "short_edge": False,
+                           "overfitting": False, "ready_for_testnet": False})
+    assert lines == ["REAL DATA: NO", "LONG EDGE: NO", "SHORT EDGE: NO",
+                     "OVERFITTING: NO", "READY FOR TESTNET: NO"]
 
 
 # ---- integration: one segment, LONG/SHORT/COMBINED + final table ---------

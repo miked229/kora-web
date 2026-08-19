@@ -25,6 +25,14 @@ logger = get_logger("backtesting.data_provider")
 _MAX_PER_REQUEST = 1000
 
 
+class RealDataUnavailable(RuntimeError):
+    """Raised in REAL STRICT mode when real Binance history cannot be obtained.
+
+    In strict mode there is NO synthetic fallback: the caller must stop and report
+    ``REAL DATA VALIDATION FAILED`` rather than present synthetic data as real.
+    """
+
+
 @dataclass
 class MarketDataResult:
     df: pd.DataFrame
@@ -75,6 +83,38 @@ def load_history(
     df = synthetic_history(bars, timeframe, seed=seed)
     return MarketDataResult(df, "SYNTHETIC", symbol, timeframe,
                             note=note or "synthetic (prefer_real disabled)")
+
+
+def load_real_history(
+    symbol: str,
+    timeframe: Timeframe,
+    bars: int,
+    *,
+    market=None,
+    min_bars: Optional[int] = None,
+) -> MarketDataResult:
+    """REAL STRICT loader — real Binance history or ``RealDataUnavailable``.
+
+    There is NO synthetic fallback here. If the public endpoint is unreachable
+    (e.g. blocked by egress policy → 403) or returns fewer than ``min_bars``
+    closed candles, this raises ``RealDataUnavailable`` so the caller stops and
+    reports ``REAL DATA VALIDATION FAILED`` instead of presenting synthetic data.
+    """
+    need = min_bars if min_bars is not None else max(bars // 2, 600)
+    try:
+        df = _fetch_real(symbol, timeframe, bars, market)
+    except Exception as exc:   # connection block, timeout, validation, ...
+        raise RealDataUnavailable(
+            f"{symbol} {timeframe.value}: could not reach Binance "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+    if len(df) < need:
+        raise RealDataUnavailable(
+            f"{symbol} {timeframe.value}: only {len(df)} real closed candles "
+            f"returned (need >= {need})"
+        )
+    return MarketDataResult(df, "BINANCE", symbol, timeframe,
+                            note=f"{len(df)} real closed candles from Binance")
 
 
 # --------------------------------------------------------------------------

@@ -104,6 +104,27 @@ python app.py --testnet-check   # same flags also work via app.py (delegates to 
 pytest                          # full offline test suite
 ```
 
+## Strategy validation (LONG + SHORT, no Mainnet)
+
+Quantitative, read-only validation of the strategy — chronological
+TRAIN/VALIDATION/OUT-OF-SAMPLE, walk-forward, look-ahead-safe, separate LONG /
+SHORT / COMBINED results, overfitting detection. It never places orders.
+
+```bash
+# REAL STRICT — real Binance history only, NO synthetic fallback. Run this on a
+# machine with outbound access to Binance (e.g. your Mac). If Binance is not
+# reachable it stops with "REAL DATA VALIDATION FAILED" (writes REAL_VALIDATION_REPORT.md):
+python validate.py --real       # BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT @ 4h,1h
+
+# Offline development only (clearly-labelled synthetic data, writes VALIDATION_REPORT.md):
+python validate.py --synthetic-only --symbols BTCUSDT --timeframes 1h
+```
+
+Each run prints a verdict block: `REAL DATA / LONG EDGE / SHORT EDGE /
+OVERFITTING / READY FOR TESTNET` (YES/NO). A result is never called profitable or
+guaranteed; when the out-of-sample edge is absent or the sample is too small, the
+report says so and does **not** advance to Testnet.
+
 ## Security
 
 - Credentials come **only** from environment variables (a git-ignored `.env`).

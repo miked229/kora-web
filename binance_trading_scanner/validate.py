@@ -19,14 +19,17 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from backtesting import (
+    RealDataUnavailable,
     ValidationConfig,
     detect_overfitting,
     edge_verdict,
     final_table,
     load_history,
+    load_real_history,
     validate_split,
     walk_forward,
 )
+from backtesting.validation import _MIN_TRADES_FOR_EDGE
 from core.enums import Timeframe
 
 _MIN_BARS_NEEDED = 900   # need enough for a warmup + 3 segments to produce trades
@@ -84,6 +87,68 @@ def _segment_md(seg, title: str) -> List[str]:
     return lines
 
 
+def _comparison_md(sv) -> List[str]:
+    """TRAIN vs VALIDATION vs OOS side-by-side, per direction (overfitting read)."""
+    lines = ["#### TRAIN vs VALIDATION vs OUT-OF-SAMPLE (per direction)", ""]
+    lines.append("| Direction | Segment | Trades | Win % | Profit Factor | Expectancy (R) | Net PnL |")
+    lines.append("|---|---|---|---|---|---|---|")
+    for d in ("LONG", "SHORT", "COMBINED"):
+        for seg_name, seg in (("TRAIN", sv.train), ("VALIDATION", sv.validation),
+                              ("OOS", sv.out_of_sample)):
+            r = seg.reports[d]
+            lines.append(f"| {d} | {seg_name} | {r.trades} | {_f(r.win_rate,1)} | "
+                         f"{_f(r.profit_factor)} | {_f(r.expectancy_r,3)} | {_f(r.net_pnl)} |")
+    return lines
+
+
+def _direction_has_edge(oos, train) -> bool:
+    """Conservative OOS edge test for one direction on one symbol/timeframe."""
+    if oos.trades < _MIN_TRADES_FOR_EDGE:
+        return False
+    if oos.expectancy_r is None or oos.expectancy_r <= 0:
+        return False
+    if oos.profit_factor is None or oos.profit_factor <= 1.0:
+        return False
+    if detect_overfitting(train, oos)["overfitting_suspected"]:
+        return False
+    return True
+
+
+def compute_verdict(entries: List[dict]) -> dict:
+    """The five headline booleans, computed conservatively from OOS results."""
+    real_entries = [e for e in entries if e["split"] is not None]
+    real_data = bool(real_entries) and all(e["source"] == "BINANCE" for e in real_entries)
+    long_edge = short_edge = overfitting = False
+    for e in real_entries:
+        sv = e["split"]
+        for d in ("LONG", "SHORT", "COMBINED"):
+            if detect_overfitting(sv.train.reports[d], sv.out_of_sample.reports[d])["overfitting_suspected"]:
+                overfitting = True
+        if _direction_has_edge(sv.out_of_sample.reports["LONG"], sv.train.reports["LONG"]):
+            long_edge = True
+        if _direction_has_edge(sv.out_of_sample.reports["SHORT"], sv.train.reports["SHORT"]):
+            short_edge = True
+    ready = bool(real_data and (long_edge or short_edge) and not overfitting)
+    return {
+        "real_data": real_data,
+        "long_edge": long_edge,
+        "short_edge": short_edge,
+        "overfitting": overfitting,
+        "ready_for_testnet": ready,
+    }
+
+
+def verdict_lines(v: dict) -> List[str]:
+    yn = lambda b: "YES" if b else "NO"
+    return [
+        f"REAL DATA: {yn(v['real_data'])}",
+        f"LONG EDGE: {yn(v['long_edge'])}",
+        f"SHORT EDGE: {yn(v['short_edge'])}",
+        f"OVERFITTING: {yn(v['overfitting'])}",
+        f"READY FOR TESTNET: {yn(v['ready_for_testnet'])}",
+    ]
+
+
 def build_report(entries: List[dict], cfg: ValidationConfig) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     L: List[str] = []
@@ -135,6 +200,9 @@ def build_report(entries: List[dict], cfg: ValidationConfig) -> str:
         L.extend(_segment_md(sv.out_of_sample, "OUT-OF-SAMPLE (hold-out)"))
         L.append("")
 
+        L.extend(_comparison_md(sv))
+        L.append("")
+
         L.append("#### Out-of-sample edge verdict & overfitting check")
         for d in ("LONG", "SHORT", "COMBINED"):
             v = edge_verdict(sv.out_of_sample.reports[d])
@@ -164,6 +232,17 @@ def build_report(entries: List[dict], cfg: ValidationConfig) -> str:
     L.append("## Overall reading")
     L.append("")
     L.append(_overall(entries))
+    L.append("")
+    v = compute_verdict(entries)
+    L.append("## VERDICT")
+    L.append("")
+    L.append("```")
+    L.extend(verdict_lines(v))
+    L.append("```")
+    if not v["ready_for_testnet"]:
+        L.append("")
+        L.append("**Not ready for Testnet.** Do NOT advance to Futures Testnet or Mainnet on "
+                 "this basis. This is a research result on a finite sample, not a profit claim.")
     L.append("")
     L.append("## Caveats")
     L.append("")
@@ -205,12 +284,21 @@ def _overall(entries: List[dict]) -> str:
 
 
 def run(symbols: List[str], timeframes: List[Timeframe], bars: int,
-        prefer_real: bool = True) -> tuple:
+        prefer_real: bool = True, require_real: bool = False) -> tuple:
+    """Run validation for every symbol/timeframe.
+
+    When ``require_real`` (REAL STRICT mode) any symbol/timeframe whose real data
+    cannot be obtained raises ``RealDataUnavailable`` — there is NO synthetic
+    fallback, so the caller can stop with REAL DATA VALIDATION FAILED.
+    """
     cfg = ValidationConfig()
     entries: List[dict] = []
     for sym in symbols:
         for tf in timeframes:
-            data = load_history(sym, tf, bars, prefer_real=prefer_real)
+            if require_real:
+                data = load_real_history(sym, tf, bars, min_bars=_MIN_BARS_NEEDED)
+            else:
+                data = load_history(sym, tf, bars, prefer_real=prefer_real)
             if len(data.df) < _MIN_BARS_NEEDED:
                 entries.append({"symbol": sym, "timeframe": tf.value, "source": data.source,
                                 "note": f"{data.note} — insufficient bars ({len(data.df)}) for validation",
@@ -223,26 +311,96 @@ def run(symbols: List[str], timeframes: List[Timeframe], bars: int,
     return entries, cfg
 
 
+def _write_failure_report(out: str, symbols, timeframes, reason: str) -> None:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        "# REAL DATA VALIDATION FAILED",
+        "",
+        "> ⚠️ **No Mainnet, no real money, no orders.** REAL STRICT mode does NOT fall back to "
+        "synthetic data, so no results are presented here — synthetic data is never shown as a "
+        "real-data validation.",
+        "",
+        f"Generated: {now}",
+        "",
+        "## Result",
+        "",
+        "```",
+        "REAL DATA VALIDATION FAILED",
+        "```",
+        "",
+        f"- Symbols requested: {', '.join(symbols)}",
+        f"- Timeframes requested: {', '.join(t.value for t in timeframes)}",
+        f"- Reason: {reason}",
+        "",
+        "## What this means",
+        "",
+        "Real Binance historical data could not be downloaded from this environment "
+        "(the public API host is not reachable here — egress policy returns 403). This is "
+        "expected inside the sandbox; **run `python validate.py --real` on a machine with "
+        "outbound access to Binance** (e.g. your Mac) to perform the real-data validation.",
+        "",
+        "```",
+        "REAL DATA: NO",
+        "LONG EDGE: NO",
+        "SHORT EDGE: NO",
+        "OVERFITTING: NO",
+        "READY FOR TESTNET: NO",
+        "```",
+        "",
+        "_No synthetic data was used. No Mainnet. No real money._",
+    ]
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Offline LONG+SHORT validation (no Mainnet).")
-    p.add_argument("--symbols", default="BTCUSDT,ETHUSDT")
-    p.add_argument("--timeframes", default="1h")
-    p.add_argument("--bars", type=int, default=1500)
-    p.add_argument("--out", default="VALIDATION_REPORT.md")
+    p = argparse.ArgumentParser(description="LONG+SHORT validation (no Mainnet, no real money).")
+    p.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT")
+    p.add_argument("--timeframes", default="4h,1h")
+    p.add_argument("--bars", type=int, default=4000)
+    p.add_argument("--out", default=None)
+    p.add_argument("--real", action="store_true",
+                   help="REAL STRICT: require real Binance data, NO synthetic fallback")
     p.add_argument("--synthetic-only", action="store_true",
-                   help="skip the real-data attempt entirely")
+                   help="skip the real-data attempt entirely (offline dev only)")
     args = p.parse_args(argv)
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     timeframes = [Timeframe.from_value(t.strip()) for t in args.timeframes.split(",") if t.strip()]
+    out = args.out or ("REAL_VALIDATION_REPORT.md" if args.real else "VALIDATION_REPORT.md")
 
-    print(f"Validating {symbols} @ {[t.value for t in timeframes]} on {args.bars} bars "
-          f"({'synthetic only' if args.synthetic_only else 'real-first, synthetic fallback'}) ...")
-    entries, cfg = run(symbols, timeframes, args.bars, prefer_real=not args.synthetic_only)
+    if args.real and args.synthetic_only:
+        print("--real and --synthetic-only are mutually exclusive.", file=sys.stderr)
+        return 2
+
+    mode = ("REAL STRICT (no synthetic fallback)" if args.real
+            else "synthetic only" if args.synthetic_only
+            else "real-first, synthetic fallback")
+    print(f"Validating {symbols} @ {[t.value for t in timeframes]} on {args.bars} bars ({mode}) ...")
+
+    if args.real:
+        try:
+            entries, cfg = run(symbols, timeframes, args.bars, require_real=True)
+        except RealDataUnavailable as exc:
+            _write_failure_report(out, symbols, timeframes, str(exc))
+            print("REAL DATA VALIDATION FAILED")
+            print(f"  reason: {exc}")
+            print(f"Wrote {out}")
+            print("\n".join([
+                "", "REAL DATA: NO", "LONG EDGE: NO", "SHORT EDGE: NO",
+                "OVERFITTING: NO", "READY FOR TESTNET: NO",
+            ]))
+            return 1
+    else:
+        entries, cfg = run(symbols, timeframes, args.bars,
+                           prefer_real=not args.synthetic_only)
+
     report = build_report(entries, cfg)
-    with open(args.out, "w", encoding="utf-8") as fh:
+    with open(out, "w", encoding="utf-8") as fh:
         fh.write(report + "\n")
-    print(f"Wrote {args.out}")
+    print(f"Wrote {out}")
+    print()
+    print("\n".join(verdict_lines(compute_verdict(entries))))
     return 0
 
 
