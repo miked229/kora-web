@@ -40,6 +40,13 @@ logger = get_logger("backtesting.engine")
 _REQUIRED_COLS = ("open", "high", "low", "close", "volume", "open_time", "close_time")
 
 
+def clean_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Deterministic cleaning used by the backtester: sort by open_time and drop
+    duplicate timestamps (keep first). Shared so precomputed signals align exactly
+    with what ``BacktestEngine.run`` iterates over."""
+    return df.sort_values("open_time").drop_duplicates("open_time", keep="first").reset_index(drop=True)
+
+
 @dataclass
 class BacktestConfig:
     capital: float = 10_000.0
@@ -161,13 +168,13 @@ class BacktestEngine:
     # -- public -------------------------------------------------------------
 
     def run(self, df: pd.DataFrame, symbol: str, timeframe: Timeframe,
-            label: str = "full") -> BacktestResult:
+            label: str = "full", *, signals: Optional[List] = None) -> BacktestResult:
         cfg = self.config
         min_bars = cfg.min_bars or self.signal_engine.cfg.min_bars
         quality = check_data_quality(df, timeframe, min_bars)
 
         # Clean deterministically: sort, drop duplicate timestamps (keep first).
-        clean = df.sort_values("open_time").drop_duplicates("open_time", keep="first").reset_index(drop=True)
+        clean = clean_frame(df)
 
         portfolio = Portfolio(cfg.capital, cfg.limits)
         trades: List[Trade] = []
@@ -188,12 +195,25 @@ class BacktestEngine:
 
         sim = Simulator(cfg, portfolio, symbol, timeframe.value)
 
+        # Precompute the signal context ONCE (O(n)); per-bar evaluation then reads
+        # cheap slices instead of recomputing every indicator each bar (O(n^2)).
+        # ``signal_at`` is bit-for-bit identical to ``evaluate_at`` (no look-ahead).
+        # A caller that runs several direction variants over the SAME bars can pass
+        # a precomputed ``signals`` list so identical signals are not recomputed
+        # (the signal never depends on ``allowed_directions`` — that only gates
+        # execution in the Simulator).
+        prep = None
+        if signals is not None and len(signals) != n:
+            signals = None            # misaligned -> recompute to stay correct
+        if signals is None:
+            prep = self.signal_engine.prepare(clean)
+
         for i in range(n):
             o, h, l, c = opens[i], highs[i], lows[i], closes[i]
             ct = int(ctimes[i])
 
             # Evaluate the signal at this candle close (bars 0..i only).
-            sig = self.signal_engine.evaluate_at(clean, i, symbol, timeframe)
+            sig = signals[i] if signals is not None else prep.signal_at(i, symbol, timeframe)
             log = {
                 "timestamp": ct, "direction": sig.direction.value,
                 "raw_score": round(sig.raw_score, 2), "final_score": round(sig.score, 2),

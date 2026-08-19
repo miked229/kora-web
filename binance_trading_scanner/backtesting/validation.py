@@ -21,8 +21,10 @@ import pandas as pd
 
 from core.enums import Timeframe
 
-from .data_split import split_in_out, walk_forward_windows
-from .engine import BacktestConfig, BacktestEngine, BacktestResult
+from signals import SignalEngine
+
+from .data_split import walk_forward_windows
+from .engine import BacktestConfig, BacktestEngine, BacktestResult, clean_frame
 from .execution import ExecutionConfig
 from .metrics import Metrics
 from .portfolio import RiskLimits
@@ -151,14 +153,32 @@ def peak_exposure_pct(equity_curve) -> float:
     return peak
 
 
+def precompute_signals(engine: SignalEngine, df: pd.DataFrame, symbol: str,
+                       timeframe: Timeframe) -> list:
+    """Compute the signal for every (cleaned) bar ONCE.
+
+    The signal never depends on which directions are executed, so LONG/SHORT/
+    COMBINED runs over the same bars can share this list instead of recomputing
+    identical snapshots three times. Aligned to ``clean_frame(df)`` — exactly what
+    ``BacktestEngine.run`` iterates over."""
+    clean = clean_frame(df)
+    prep = engine.prepare(clean)
+    return [prep.signal_at(i, symbol, timeframe) for i in range(len(clean))]
+
+
 def run_segment(df: pd.DataFrame, symbol: str, timeframe: Timeframe,
                 cfg: ValidationConfig, label: str,
                 signal_engine=None) -> SegmentValidation:
-    """Run LONG-only, SHORT-only and COMBINED backtests on one segment."""
+    """Run LONG-only, SHORT-only and COMBINED backtests on one segment.
+
+    Signals are computed once and reused across the three direction runs (they
+    only differ in execution, not in the signal)."""
+    eng = signal_engine or SignalEngine()
+    signals = precompute_signals(eng, df, symbol, timeframe) if len(df) else None
     reports = {}
     for name, directions in (("LONG", LONG), ("SHORT", SHORT), ("COMBINED", COMBINED)):
-        engine = BacktestEngine(signal_engine, cfg.backtest_config(directions))
-        res = engine.run(df, symbol, timeframe, label=f"{label}:{name}")
+        engine = BacktestEngine(eng, cfg.backtest_config(directions))
+        res = engine.run(df, symbol, timeframe, label=f"{label}:{name}", signals=signals)
         reports[name] = DirectionReport.from_result(name, res)
     return SegmentValidation(
         label=label, symbol=symbol, timeframe=timeframe.value, n_bars=len(df),
@@ -222,14 +242,16 @@ def walk_forward(df: pd.DataFrame, symbol: str, timeframe: Timeframe,
     agg_trades = {"LONG": [], "SHORT": [], "COMBINED": []}
     agg_net = {"LONG": 0.0, "SHORT": 0.0, "COMBINED": 0.0}
 
+    eng = signal_engine or SignalEngine()
     for w in windows:
         combined = df.iloc[w.train_start:w.test_end].reset_index(drop=True)
         # First open_time of the TEST region: trades entering at/after it are OOS.
         test_open_time = int(df["open_time"].iloc[w.test_start])
         row = {"window": w.index, "test_bars": w.test_end - w.test_start}
+        signals = precompute_signals(eng, combined, symbol, timeframe)
         for name, directions in (("LONG", LONG), ("SHORT", SHORT), ("COMBINED", COMBINED)):
-            engine = BacktestEngine(signal_engine, cfg.backtest_config(directions))
-            res = engine.run(combined, symbol, timeframe, label=f"WF{w.index}:{name}")
+            engine = BacktestEngine(eng, cfg.backtest_config(directions))
+            res = engine.run(combined, symbol, timeframe, label=f"WF{w.index}:{name}", signals=signals)
             oos_trades = [t for t in res.trades if t.entry_timestamp >= test_open_time]
             net = sum(t.net_pnl for t in oos_trades)
             rs = [t.r_multiple for t in oos_trades]

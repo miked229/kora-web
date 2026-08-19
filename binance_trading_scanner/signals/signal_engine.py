@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from core.enums import (
@@ -33,6 +34,12 @@ from core.enums import (
 )
 from core.logger import get_logger
 from core.models import Signal
+from indicators.structure import (
+    StructureState,
+    SupportResistance,
+    swing_highs,
+    swing_lows,
+)
 
 from . import scoring as sc
 from . import signal_filters as sf
@@ -56,6 +63,105 @@ class _SideEval:
     risk_reward: Optional[float]
     invalidations: List[str]
     outcome: "sf.FilterOutcome"
+
+
+@dataclass
+class _Prepared:
+    """Precomputed context for fast candle-by-candle evaluation over ONE frame.
+
+    The full snapshot (all causal indicators) is computed ONCE; each bar reads a
+    cheap slice of the precomputed series plus an incrementally-derived structure
+    /support-resistance state. Because every indicator is causal and swing pivots
+    are only counted once confirmed (index <= i - swing_right), the per-bar result
+    is bit-for-bit identical to recomputing the snapshot on ``df.iloc[:i+1]`` — with
+    no look-ahead. See tests/test_perf.py for the equivalence proof.
+    """
+    engine: "SignalEngine"
+    df: pd.DataFrame
+    full: "sc.MarketSnapshot"
+    bb_width_mean: pd.Series
+    right: int
+    hi_idx: np.ndarray
+    hi_val: np.ndarray
+    lo_idx: np.ndarray
+    lo_val: np.ndarray
+    close_ffill: np.ndarray
+    max_levels: int = 5
+
+    @property
+    def n(self) -> int:
+        return len(self.df)
+
+    def _structure_at(self, i: int) -> StructureState:
+        cut = i - self.right
+        k_hi = int(np.searchsorted(self.hi_idx, cut, side="right"))
+        k_lo = int(np.searchsorted(self.lo_idx, cut, side="right"))
+        st = StructureState()
+        if k_hi >= 1:
+            st.last_swing_high = float(self.hi_val[k_hi - 1])
+        if k_hi >= 2:
+            st.prev_swing_high = float(self.hi_val[k_hi - 2])
+            st.higher_high = st.last_swing_high > st.prev_swing_high
+            st.lower_high = st.last_swing_high < st.prev_swing_high
+        if k_lo >= 1:
+            st.last_swing_low = float(self.lo_val[k_lo - 1])
+        if k_lo >= 2:
+            st.prev_swing_low = float(self.lo_val[k_lo - 2])
+            st.higher_low = st.last_swing_low > st.prev_swing_low
+            st.lower_low = st.last_swing_low < st.prev_swing_low
+        if st.higher_high and st.higher_low:
+            st.trend = "up"
+        elif st.lower_high and st.lower_low:
+            st.trend = "down"
+        elif st.last_swing_high is not None and st.last_swing_low is not None:
+            st.trend = "range"
+        return st
+
+    def _sr_at(self, i: int) -> SupportResistance:
+        cut = i - self.right
+        k_hi = int(np.searchsorted(self.hi_idx, cut, side="right"))
+        k_lo = int(np.searchsorted(self.lo_idx, cut, side="right"))
+        res_levels = [float(x) for x in self.hi_val[:k_hi]]
+        sup_levels = [float(x) for x in self.lo_val[:k_lo]]
+        sr = SupportResistance()
+        sr.resistance_levels = res_levels[-self.max_levels:]
+        sr.support_levels = sup_levels[-self.max_levels:]
+        price = self.close_ffill[i]
+        if price != price:   # NaN: no valid close yet
+            return sr
+        price = float(price)
+        res_above = [lv for lv in res_levels if lv >= price]
+        sup_below = [lv for lv in sup_levels if lv <= price]
+        sr.nearest_resistance = min(res_above) if res_above else None
+        sr.nearest_support = max(sup_below) if sup_below else None
+        return sr
+
+    def snapshot_at(self, i: int) -> "sc.MarketSnapshot":
+        f = self.full
+        s = slice(0, i + 1)
+        return sc.MarketSnapshot(
+            df=self.df.iloc[s],
+            close=f.close.iloc[s], high=f.high.iloc[s], low=f.low.iloc[s],
+            open=f.open.iloc[s], volume=f.volume.iloc[s],
+            ema20=f.ema20.iloc[s], ema50=f.ema50.iloc[s], ema200=f.ema200.iloc[s],
+            sma200=f.sma200.iloc[s], adx=f.adx.iloc[s], rsi=f.rsi.iloc[s],
+            macd=f.macd.iloc[s], stoch=f.stoch.iloc[s], atr=f.atr.iloc[s],
+            bb=f.bb.iloc[s], bb_width=f.bb_width.iloc[s], vol_sma=f.vol_sma.iloc[s],
+            rvol=f.rvol.iloc[s], obv=f.obv.iloc[s], vwap=f.vwap.iloc[s],
+            structure=self._structure_at(i), breakout=f.breakout.iloc[s],
+            sr=self._sr_at(i), bb_width_mean=self.bb_width_mean.iloc[s],
+        )
+
+    def signal_at(self, i: int, symbol: str, timeframe: Timeframe,
+                  quote_volume: Optional[float] = None) -> Signal:
+        cfg = self.engine.cfg
+        n = i + 1
+        ts = _signal_time(self.df.iloc[: i + 1])
+        if n < cfg.min_bars:
+            return self.engine._insufficient(symbol, timeframe, n, ts)
+        snap = self.snapshot_at(i)
+        return self.engine._signal_from_snapshot(
+            snap, symbol, timeframe, ts, n, None, False, quote_volume)
 
 
 class SignalEngine:
@@ -82,15 +188,31 @@ class SignalEngine:
 
         # 1. insufficient data -> NO_TRADE (cannot compute core indicators).
         if n < cfg.min_bars:
-            return Signal(
-                symbol=symbol, timeframe=timeframe, signal=SignalType.NO_TRADE,
-                score=0.0, raw_score=0.0, created_at=ts,
-                warnings=[f"Insufficient data: {n} bars (need >= {cfg.min_bars})"],
-                blocked_by=["insufficient_data"],
-            )
+            return self._insufficient(symbol, timeframe, n, ts)
 
-        # 2. snapshot + shared (direction-neutral) blocks
+        # 2. snapshot (recompute path) + shared decision core.
         snap = sc.compute_snapshot(df, cfg)
+        htf_trend = self._htf_trend(htf_df) if htf_df is not None else None
+        return self._signal_from_snapshot(
+            snap, symbol, timeframe, ts, n, htf_trend, htf_df is not None, quote_volume)
+
+    def _insufficient(self, symbol, timeframe, n: int, ts) -> Signal:
+        cfg = self.cfg
+        return Signal(
+            symbol=symbol, timeframe=timeframe, signal=SignalType.NO_TRADE,
+            score=0.0, raw_score=0.0, created_at=ts,
+            warnings=[f"Insufficient data: {n} bars (need >= {cfg.min_bars})"],
+            blocked_by=["insufficient_data"],
+        )
+
+    def _signal_from_snapshot(
+        self, snap: "sc.MarketSnapshot", symbol: str, timeframe: Timeframe, ts,
+        n: int, htf_trend, htf_present: bool, quote_volume: Optional[float],
+    ) -> Signal:
+        """Shared decision core: snapshot -> Signal. Used by both the recompute
+        path (``evaluate``) and the prepared fast path (``evaluate_prepared``)."""
+        cfg = self.cfg
+        # 2. shared (direction-neutral) blocks
         atr_v = sc._last(snap.atr)
         volat_res, volat_state, atr_pct = sc.evaluate_volatility(snap, cfg)
         # trend/structure CLASSIFICATION is the same regardless of side; only the
@@ -99,7 +221,6 @@ class SignalEngine:
         trend_res, trend_class = sc.evaluate_trend(snap, cfg)
         struct_res, struct_class = sc.evaluate_structure(snap, cfg)
 
-        htf_trend = self._htf_trend(htf_df) if htf_df is not None else None
         rvol = sc._last(snap.rvol)
         volume_confirmed = rvol is not None and rvol >= cfg.rvol_high
 
@@ -156,9 +277,9 @@ class SignalEngine:
                 )
 
         any_candidate = long_side.candidate or short_side.candidate
-        if htf_df is not None and htf_trend is not None:
+        if htf_present and htf_trend is not None:
             decision_notes.append(f"HTF trend: {htf_trend.value}")
-        elif any_candidate and htf_df is None:
+        elif any_candidate and not htf_present:
             decision_notes.append("Higher-timeframe context not provided")
 
         # 7. assemble explainable Signal from the REPORTED side
@@ -224,6 +345,29 @@ class SignalEngine:
         if index < 0:
             index = len(df) + index
         return self.evaluate(df.iloc[: index + 1], symbol, timeframe, **kwargs)
+
+    def prepare(self, df: pd.DataFrame) -> _Prepared:
+        """Precompute a fast per-bar evaluation context for ``df`` (one frame).
+
+        Compute the full snapshot and swing pivots ONCE; ``prep.signal_at(i, ...)``
+        then evaluates bar ``i`` in O(1)-ish time with output identical to
+        ``evaluate_at(df, i, ...)`` and no look-ahead."""
+        cfg = self.cfg
+        full = sc.compute_snapshot(df, cfg)
+        bb_width_mean = full.bb_width.rolling(cfg.bb_width_lookback).mean()
+        high = full.high.to_numpy(dtype="float64")
+        low = full.low.to_numpy(dtype="float64")
+        sh = swing_highs(full.high, cfg.swing_left, cfg.swing_right).to_numpy()
+        sl = swing_lows(full.low, cfg.swing_left, cfg.swing_right).to_numpy()
+        hi_idx = np.flatnonzero(sh)
+        lo_idx = np.flatnonzero(sl)
+        return _Prepared(
+            engine=self, df=df, full=full, bb_width_mean=bb_width_mean,
+            right=cfg.swing_right,
+            hi_idx=hi_idx, hi_val=high[hi_idx],
+            lo_idx=lo_idx, lo_val=low[lo_idx],
+            close_ffill=full.close.ffill().to_numpy(dtype="float64"),
+        )
 
     # -- internals ----------------------------------------------------------
 

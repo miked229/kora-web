@@ -192,6 +192,10 @@ class MarketSnapshot:
     structure: StructureState
     breakout: pd.DataFrame
     sr: SupportResistance
+    # Optional precomputed rolling mean of bb_width (set by the prepared fast
+    # path to avoid recomputing a rolling reduction on every bar). When None the
+    # value is computed on demand — byte-identical, just slower.
+    bb_width_mean: Optional[pd.Series] = None
 
     @property
     def n(self) -> int:
@@ -519,7 +523,10 @@ def evaluate_volatility(snap: MarketSnapshot, cfg: EngineConfig) -> tuple[BlockR
     bb_w = _last(snap.bb_width)
     bb_w_mean = None
     if snap.bb_width is not None and len(snap.bb_width.dropna()) >= cfg.bb_width_lookback:
-        bb_w_mean = float(snap.bb_width.rolling(cfg.bb_width_lookback).mean().iloc[-1])
+        if snap.bb_width_mean is not None:
+            bb_w_mean = _last(snap.bb_width_mean)      # precomputed (prepared fast path)
+        else:
+            bb_w_mean = float(snap.bb_width.rolling(cfg.bb_width_lookback).mean().iloc[-1])
 
     vs = classify_volatility(atr_pct, bb_w, bb_w_mean, cfg)
 

@@ -40,26 +40,39 @@ def swing_lows(low: ArrayLike, left: int = 2, right: int = 2) -> pd.Series:
 
 
 def _pivots(s: pd.Series, left: int, right: int, *, want_high: bool) -> pd.Series:
+    """Vectorised strict swing-pivot detection.
+
+    Functionally identical to the original per-bar loop: a bar is a pivot when it
+    is strictly above (high) / below (low) each of the ``left`` preceding and
+    ``right`` following bars, the final ``right`` and first ``left`` bars are
+    never marked, and any NaN in the centre or a neighbour disqualifies the bar.
+
+    NaN comparisons in NumPy evaluate to ``False``, which reproduces the old
+    "skip if NaN" rule exactly, so the boolean output is bit-for-bit the same —
+    but this runs in a handful of vectorised passes instead of an O(n·window)
+    Python loop (see tests/test_perf.py for the equivalence proof).
+    """
     if left < 1 or right < 1:
         raise ValueError("left and right must be >= 1")
-    out = pd.Series(False, index=s.index, name="swing_high" if want_high else "swing_low")
+    name = "swing_high" if want_high else "swing_low"
     vals = s.to_numpy(dtype="float64")
     n = len(vals)
-    for i in range(left, n - right):
-        center = vals[i]
-        if np.isnan(center):
-            continue
-        lft = vals[i - left:i]
-        rgt = vals[i + 1:i + 1 + right]
-        if np.isnan(lft).any() or np.isnan(rgt).any():
-            continue
-        if want_high:
-            if (center > lft).all() and (center > rgt).all():
-                out.iloc[i] = True
-        else:
-            if (center < lft).all() and (center < rgt).all():
-                out.iloc[i] = True
-    return out
+    if n == 0:
+        return pd.Series(np.zeros(0, dtype=bool), index=s.index, name=name)
+
+    cond = np.ones(n, dtype=bool)
+    for k in range(1, left + 1):                 # neighbour at i-k
+        nb = np.full(n, np.nan)
+        nb[k:] = vals[:-k]
+        cond &= (vals > nb) if want_high else (vals < nb)
+    for k in range(1, right + 1):                # neighbour at i+k
+        nb = np.full(n, np.nan)
+        nb[:-k] = vals[k:]
+        cond &= (vals > nb) if want_high else (vals < nb)
+    # The first `left` and last `right` bars can never be confirmed pivots.
+    cond[:left] = False
+    cond[max(n - right, 0):] = False
+    return pd.Series(cond, index=s.index, name=name)
 
 
 # --------------------------------------------------------------------------

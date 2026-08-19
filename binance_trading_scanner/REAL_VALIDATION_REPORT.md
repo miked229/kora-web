@@ -2,7 +2,7 @@
 
 > ⚠️ **No Mainnet, no real money, no orders.** REAL STRICT mode does NOT fall back to synthetic data, so no results are presented here — synthetic data is never shown as a real-data validation.
 
-Generated: 2026-08-19 02:05 UTC
+Generated: 2026-08-19 21:03 UTC
 
 ## Result
 
@@ -10,8 +10,8 @@ Generated: 2026-08-19 02:05 UTC
 REAL DATA VALIDATION FAILED
 ```
 
-- Symbols requested: BTCUSDT, ETHUSDT
-- Timeframes requested: 4h
+- Symbols requested: BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT
+- Timeframes requested: 4h, 1h
 - Reason: BTCUSDT 4h: could not reach Binance (BinanceConnectionError: Network error after 4 attempts: 403 Forbidden)
 
 ## What this means
